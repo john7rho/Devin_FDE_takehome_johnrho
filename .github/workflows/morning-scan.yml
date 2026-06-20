@@ -1,0 +1,55 @@
+name: Morning dependency scan
+
+# Turns the "event-driven trigger" from a demo button into a real recurring event:
+# every morning, POST the backend's /api/v1/runs endpoint — the same endpoint the
+# dashboard's "Scan" button hits. In production this would also be a scanner webhook
+# or a GitHub event; this is the cron arm of that same loop.
+
+on:
+  schedule:
+    # 16:00 UTC ~= 9:00am Pacific (PDT). GitHub cron is always UTC — adjust to taste.
+    - cron: "0 16 * * *"
+  workflow_dispatch:
+    inputs:
+      scan_only:
+        description: "Scan only (file issues, no Devin sessions / PRs). Uncheck to also remediate."
+        type: boolean
+        default: true
+
+# Never let two morning runs overlap (e.g. a manual trigger during the scheduled one).
+concurrency:
+  group: morning-scan
+  cancel-in-progress: false
+
+jobs:
+  trigger-run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger a run on the backend
+        env:
+          # Set this repo secret to your deployed backend, e.g. https://<app>.onrender.com
+          BACKEND_URL: ${{ secrets.SUPERSET_BACKEND_URL }}
+          # Scheduled runs carry no inputs -> default to scan-only (safe: no unattended
+          # Devin sessions / spend). A manual dispatch can uncheck it to also remediate.
+          SCAN_ONLY: ${{ github.event.inputs.scan_only || 'true' }}
+        run: |
+          set -euo pipefail
+          if [ -z "${BACKEND_URL:-}" ]; then
+            echo "::error::Set the SUPERSET_BACKEND_URL repo secret to your deployed backend URL"
+            exit 1
+          fi
+          echo "POST ${BACKEND_URL}/api/v1/runs  (scan_only=${SCAN_ONLY})"
+          # Render free tier cold-starts ~30-50s; retry + long timeout cover the wake-up.
+          code=$(curl -sS -o /tmp/run.json -w '%{http_code}' \
+            --max-time 180 --retry 4 --retry-delay 10 --retry-connrefused \
+            -X POST "${BACKEND_URL}/api/v1/runs" \
+            -H 'Content-Type: application/json' \
+            -d "{\"scan_only\": ${SCAN_ONLY}}")
+          echo "HTTP ${code}"
+          cat /tmp/run.json 2>/dev/null || true
+          echo
+          if [ "${code}" -lt 200 ] || [ "${code}" -ge 300 ]; then
+            echo "::error::Run trigger failed (HTTP ${code})"
+            exit 1
+          fi
+          echo "::notice::Morning run triggered (scan_only=${SCAN_ONLY})"

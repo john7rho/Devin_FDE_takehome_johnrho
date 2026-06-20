@@ -194,30 +194,40 @@ async def get_pull_requests():
     try:
         github_client = GitHubClient()
         repo = github_client.get_repo()
-        prs = repo.get_pulls(state="open", sort="created", direction="desc")
-        
-        pr_list = []
-        for pr in prs:
-            pr_list.append({
+
+        def serialize(pr, merged: bool):
+            return {
                 "number": pr.number,
                 "title": pr.title,
                 "html_url": pr.html_url,
-                "state": pr.state,
+                "state": "merged" if merged else pr.state,
+                "merged": merged,
+                "merged_at": pr.merged_at.isoformat() if pr.merged_at else None,
                 "user": pr.user.login,
                 "created_at": pr.created_at.isoformat(),
                 "updated_at": pr.updated_at.isoformat(),
                 "mergeable": pr.mergeable,
-                "mergeable_state": pr.mergeable_state,
+                "mergeable_state": "merged" if merged else pr.mergeable_state,
                 "head_ref": pr.head.ref,
                 "base_ref": pr.base.ref,
                 "additions": pr.additions,
                 "deletions": pr.deletions,
                 "commits": pr.commits,
                 "reviewers": [reviewer.login for reviewer in pr.requested_reviewers],
-            })
-        
-        return pr_list
-        
+            }
+
+        # Open PRs are in-flight work; recently merged PRs are delivered work. The
+        # dashboard needs both so it can show a delivery rate, not just the backlog.
+        # merged_at is in the list payload, so the filter is cheap; only the few
+        # actually-merged PRs get fully serialized.
+        open_prs = [serialize(pr, False) for pr in repo.get_pulls(state="open", sort="created", direction="desc")]
+        merged_prs = [
+            serialize(pr, True)
+            for pr in repo.get_pulls(state="closed", sort="updated", direction="desc")[:40]
+            if pr.merged_at is not None
+        ]
+        return open_prs + merged_prs
+
     except Exception as e:
         # Degrade gracefully: GitHub may be unconfigured/unreachable, or
         # GITHUB_REPO_OWNER/NAME may not point at a real fork. Return an empty list

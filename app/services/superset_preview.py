@@ -55,8 +55,21 @@ def is_configured() -> bool:
 
 
 def create_preview_session() -> Dict[str, Any]:
-    """Create the Devin session and return its id + session UI url."""
-    payload: Dict[str, Any] = {"prompt": PROMPT, "idempotent": True, "title": "Superset preview"}
+    """Create a FRESH Devin session and return its id + session UI url.
+
+    idempotent is intentionally OFF: with idempotent=True and a constant prompt,
+    Devin returns the *same* session forever, so once it exits (sessions are
+    ephemeral) every click reopens a dead session. A fresh session per click is what
+    "spin up Superset" should mean.
+    """
+    payload: Dict[str, Any] = {
+        "prompt": PROMPT,
+        "title": "Superset preview",
+        # Bound cost, but generously: a full Superset boot (image pull + init +
+        # load_examples) is heavy, so this must sit well above a normal boot or the
+        # cap itself kills the session mid-build. Override via DEVIN_SUPERSET_MAX_ACU.
+        "max_acu_limit": int(os.getenv("DEVIN_SUPERSET_MAX_ACU", "30")),
+    }
     # Pin a pre-built Superset blueprint snapshot for near-instant boots (per-project).
     snapshot_id = os.getenv("DEVIN_SUPERSET_SNAPSHOT_ID")
     if snapshot_id:
@@ -69,15 +82,27 @@ def create_preview_session() -> Dict[str, Any]:
     return {"session_id": data.get("session_id"), "session_url": data.get("url")}
 
 
+# Devin status_enum values meaning the session is no longer working; once a preview
+# session is terminal, its exposed port is gone and the caller should re-spin.
+_TERMINAL_STATUSES = {"finished", "exit", "expired", "blocked", "error", "stopped"}
+
+
 def get_preview_url(session_id: str) -> Dict[str, Any]:
-    """Poll the session and extract the public devinapps.com URL once Devin posts it."""
+    """Poll the session for the public devinapps.com URL, and report whether the
+    session has gone terminal so the caller can re-spin instead of polling a corpse."""
     with _client() as c:
         r = c.get(f"/v1/sessions/{session_id}")
         r.raise_for_status()
         data = r.json()
     match = _DEVINAPPS_RE.search(json.dumps(data))
+    status = data.get("status_enum") or data.get("status")
+    terminal = str(status).lower() in _TERMINAL_STATUSES
     return {
         "session_id": session_id,
-        "status": data.get("status_enum") or data.get("status"),
+        "status": status,
         "preview_url": match.group(0) if match else None,
+        "terminal": terminal,
+        # Exposing the port needs a one-time manual "Approve" click in the Devin
+        # session UI; surface that so the dashboard can tell the reviewer.
+        "needs_approval": match is None and not terminal,
     }

@@ -8,6 +8,10 @@ class Settings(BaseSettings):
     # Devin API Configuration
     devin_api_key: str
     devin_api_url: str = "https://api.devin.ai"
+    # Cognition/Devin enterprise key for the consumption (ACU) API; falls back to
+    # devin_api_key. NOTE: the consumption API also requires Devin to enable it for
+    # the account, so ACU stays unavailable (403) until the org is entitled.
+    cog_api_key: Optional[str] = None
     max_acu_limit: int = 10
     max_concurrent_sessions: int = 3
     

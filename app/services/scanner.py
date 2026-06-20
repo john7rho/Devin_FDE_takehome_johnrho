@@ -3,6 +3,7 @@ import json
 from typing import List
 from pathlib import Path
 
+from app.core.config import settings
 from app.models.schemas import ScanResult
 from app.utils.logger import get_logger
 
@@ -15,46 +16,63 @@ class DependencyScanner:
         self.logger = get_logger()
     
     def run_pip_audit(self) -> List[ScanResult]:
-        """Run pip-audit and return scan results."""
+        """Run pip-audit and return scan results.
+
+        pip-audit exits non-zero (1) precisely WHEN it finds vulnerabilities, so we
+        must parse stdout regardless of the exit code -- a genuine failure is signalled
+        by empty/unparseable stdout, not by a nonzero code. The JSON shape is
+        {"dependencies": [{"name", "version", "vulns": [{"id", "fix_versions",
+        "aliases", "description"}]}]} (older pip-audit emitted a bare list).
+        Ref: pip-audit README exit codes -- https://github.com/pypa/pip-audit#exit-codes
+        """
         if not self.repo_path:
             self.logger.warning("No repo path provided for pip-audit")
             return []
-        
+
         try:
             self.logger.info("Running pip-audit", repo_path=str(self.repo_path))
-            
+
             result = subprocess.run(
                 ["pip-audit", "--format", "json", "--output", "-"],
                 cwd=self.repo_path,
                 capture_output=True,
                 text=True
             )
-            
-            if result.returncode != 0:
-                self.logger.error("pip-audit failed", error=result.stderr)
+
+            if not (result.stdout or "").strip():
+                # No JSON at all -> genuine tool failure (bad path, install error, ...)
+                self.logger.error("pip-audit produced no output",
+                                  error=result.stderr, returncode=result.returncode)
                 return []
-            
+
             data = json.loads(result.stdout)
+            # Accept both the object form ({"dependencies": [...]}) and a bare list.
+            deps = data.get("dependencies", []) if isinstance(data, dict) else data
             findings = []
-            
-            for vuln in data.get("dependencies", []):
-                for detail in vuln.get("vulnerabilities", []):
+
+            for dep in deps:
+                version = dep.get("version")
+                for v in (dep.get("vulns") or dep.get("vulnerabilities") or []):
+                    fix_versions = v.get("fix_versions") or []
                     finding = ScanResult(
-                        dependency_name=vuln.get("name"),
-                        vulnerability_id=detail.get("id"),
-                        severity=detail.get("severity", "UNKNOWN"),
-                        description=detail.get("description", ""),
-                        affected_versions=vuln.get("version", []),
-                        fixed_version=detail.get("fix_versions", [None])[0],
-                        references=detail.get("references", [])
+                        dependency_name=dep.get("name"),
+                        vulnerability_id=v.get("id"),
+                        severity=v.get("severity", "UNKNOWN"),  # pip-audit omits severity
+                        description=v.get("description", ""),
+                        affected_versions=[version] if version else [],
+                        fixed_version=fix_versions[0] if fix_versions else None,
+                        references=v.get("aliases") or v.get("references") or [],
                     )
                     findings.append(finding)
-            
+
             self.logger.info("pip-audit completed", findings_count=len(findings))
             return findings
-            
+
         except FileNotFoundError:
             self.logger.warning("pip-audit not found, skipping")
+            return []
+        except (json.JSONDecodeError, ValueError) as e:
+            self.logger.error("pip-audit output not parseable", error=str(e))
             return []
         except Exception as e:
             self.logger.error("Error running pip-audit", error=str(e))
@@ -127,13 +145,16 @@ class DependencyScanner:
     def scan_all(self) -> List[ScanResult]:
         """Run all enabled scanners and return combined, deduplicated results."""
         all_findings = []
-        
-        if self.repo_path.joinpath("requirements.txt").exists() or \
-           self.repo_path.joinpath("setup.py").exists() or \
-           self.repo_path.joinpath("pyproject.toml").exists():
+
+        has_python = (
+            self.repo_path.joinpath("requirements.txt").exists()
+            or self.repo_path.joinpath("setup.py").exists()
+            or self.repo_path.joinpath("pyproject.toml").exists()
+        )
+        if settings.enable_pip_audit and has_python:
             all_findings.extend(self.run_pip_audit())
-        
-        if self.repo_path.joinpath("package.json").exists():
+
+        if settings.enable_pnpm_audit and self.repo_path.joinpath("package.json").exists():
             all_findings.extend(self.run_pnpm_audit())
-        
+
         return self.deduplicate_findings(all_findings)

@@ -15,6 +15,12 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
+# NEXT_PUBLIC_* is inlined into the browser bundle at BUILD time, so the API URL
+# must be set here (not as a runtime env). Default to the host-reachable backend
+# (the browser hits localhost:8000, not the docker-internal "backend" hostname).
+ARG NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+
 RUN npm install -g pnpm
 RUN pnpm build
 

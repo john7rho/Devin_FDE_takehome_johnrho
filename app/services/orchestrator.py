@@ -171,38 +171,42 @@ class Orchestrator:
         
         self.logger.info(f"Found {len(findings)} vulnerabilities")
         
+        # Dedupe against ALL existing issues (any status), keyed on the same
+        # (dependency, vulnerability id) identity deduplicate_findings() uses -- so
+        # completed/failed findings aren't recreated, and distinct CVEs for the same
+        # dependency each get their own issue instead of collapsing by title.
+        existing_keys = {
+            (i.get("dependency_name"), i.get("vulnerability_id"))
+            for i in db.get_all_issues()
+        }
         issue_urls = []
         for finding in findings:
-            # Check if issue already exists
-            existing = db.get_pending_issues()
-            title = f"Dependency vulnerability: {finding.dependency_name}"
-            
-            # Simple deduplication by title
-            if any(issue["title"] == title for issue in existing):
-                self.logger.info("Issue already exists", title=title)
+            key = (finding.dependency_name, finding.vulnerability_id)
+            if key in existing_keys:
+                self.logger.info("Issue already exists", dependency=finding.dependency_name,
+                                 vulnerability_id=finding.vulnerability_id)
                 continue
-            
-            # Create GitHub issue
+
+            vuln_suffix = f" ({finding.vulnerability_id})" if finding.vulnerability_id else ""
+            title = f"Dependency vulnerability: {finding.dependency_name}{vuln_suffix}"
             issue_body = self._build_issue_body(finding)
             issue = self.github_client.create_issue(
                 title=title,
                 body=issue_body,
-                labels=["dependency", "security", "automated"]
+                labels=["dependency", "security", "automated"],
             )
-            
-            # Store in database
             db.insert_issue(
                 issue_url=issue.html_url,
                 title=title,
                 finding_type="dependency",
                 dependency_name=finding.dependency_name,
                 vulnerability_id=finding.vulnerability_id,
-                severity=finding.severity
+                severity=finding.severity,
             )
-            
+            existing_keys.add(key)  # guard against dupes within this same scan batch
             issue_urls.append(issue.html_url)
             self.logger.info("Issue created", issue_url=issue.html_url)
-        
+
         return issue_urls
     
     def _build_instructions(

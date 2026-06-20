@@ -69,6 +69,10 @@ async def create_run(run: RunCreate, background_tasks: BackgroundTasks):
 
     orchestrator = Orchestrator()
 
+    # The browser can't supply a server filesystem path, so fall back to the
+    # configured scan_repo_path -- this is what makes the "Scan" buttons actually scan.
+    repo_path = run.repo_path or settings.scan_repo_path
+
     async def execute_run():
         # Tag every line in this run with run_id (covers the pre-session scan +
         # GitHub logs that have no session_id yet).
@@ -76,21 +80,21 @@ async def create_run(run: RunCreate, background_tasks: BackgroundTasks):
         issues_found = 0
         sessions_started = 0
         try:
-            if run.repo_path:
+            if repo_path:
                 # Scan a local checkout and create issues for findings.
-                issue_urls = await orchestrator.scan_and_create_issues(run.repo_path)
+                issue_urls = await orchestrator.scan_and_create_issues(repo_path)
                 issues_found = len(issue_urls)
                 logger.info("Scan completed", run_id=run_id, issues_created=issues_found)
+            else:
+                logger.info("No scan_repo_path configured; skipping scan", run_id=run_id)
 
             # scan_only must be honored regardless of repo_path. The old code only
             # checked it inside the repo_path branch, so "Scan only" with no checkout
             # fell through to dispatching a Devin session for EVERY pending issue.
             if not run.scan_only:
-                session_ids = await orchestrator.process_pending_issues(run.repo_path)
+                session_ids = await orchestrator.process_pending_issues(repo_path)
                 sessions_started = len(session_ids)
                 logger.info("Processing completed", run_id=run_id, sessions=sessions_started)
-            elif not run.repo_path:
-                logger.info("Scan-only run with no repo_path: nothing to scan or process", run_id=run_id)
             db.update_run(run_id, status="completed", issues_found=issues_found, sessions_started=sessions_started)
         except Exception as e:
             logger.error("Run failed", run_id=run_id, error=str(e))
@@ -221,123 +225,3 @@ async def get_pull_requests():
         logger.error("Failed to fetch pull requests", error=str(e))
         return []
 
-
-@router.post("/pull-requests/{pr_number}/reviewers")
-async def add_reviewer(pr_number: int, request: dict):
-    """Add a reviewer to a pull request."""
-    from app.services.github_client import GitHubClient
-    
-    try:
-        reviewer = request.get("reviewer")
-        if not reviewer:
-            raise HTTPException(status_code=400, detail="Reviewer is required")
-        
-        github_client = GitHubClient()
-        github_client.add_reviewer_to_pr(pr_number, reviewer)
-        return {"message": f"Added reviewer {reviewer} to PR #{pr_number}"}
-    except Exception as e:
-        logger.error("Failed to add reviewer", error=str(e))
-        raise HTTPException(status_code=500, detail="Failed to add reviewer")
-
-
-@router.delete("/pull-requests/{pr_number}/reviewers/{reviewer}")
-async def remove_reviewer(pr_number: int, reviewer: str):
-    """Remove a reviewer from a pull request."""
-    from app.services.github_client import GitHubClient
-    
-    try:
-        github_client = GitHubClient()
-        github_client.remove_reviewer_from_pr(pr_number, reviewer)
-        return {"message": f"Removed reviewer {reviewer} from PR #{pr_number}"}
-    except Exception as e:
-        logger.error("Failed to remove reviewer", error=str(e))
-        raise HTTPException(status_code=500, detail="Failed to remove reviewer")
-
-
-@router.get("/pull-requests/{pr_number}/reviewers")
-async def get_reviewers(pr_number: int):
-    """Get all reviewers for a pull request."""
-    from app.services.github_client import GitHubClient
-    
-    try:
-        github_client = GitHubClient()
-        reviewers = github_client.get_pr_reviewers(pr_number)
-        return {"reviewers": reviewers}
-    except Exception as e:
-        logger.error("Failed to fetch reviewers", error=str(e))
-        raise HTTPException(status_code=500, detail="Failed to fetch reviewers")
-
-
-@router.post("/pull-requests/{pr_number}/review")
-async def request_devin_review(pr_number: int):
-    """Request a Devin review for a pull request."""
-    from app.services.github_client import GitHubClient
-    from app.services.devin_client import DevinClient
-    
-    try:
-        github_client = GitHubClient()
-        repo = github_client.get_repo()
-        pr = repo.get_pull(pr_number)
-        
-        # Create a Devin session for reviewing the PR
-        devin_client = DevinClient()
-        repo_url = pr.head.repo.clone_url or settings.github_fork_url
-        if not repo_url:
-            raise ValueError("Unable to determine PR repository URL")
-        
-        # Build review instruction
-        instruction = f"""
-Review this pull request for the Superset repository:
-
-PR Title: {pr.title}
-PR Number: {pr.number}
-Author: {pr.user.login}
-Branch: {pr.head.ref} → {pr.base.ref}
-URL: {pr.html_url}
-
-Please:
-1. Review the code changes for quality, security, and best practices
-2. Check for any potential bugs or issues
-3. Verify the changes align with Superset's coding standards
-4. Provide specific feedback on any concerns
-5. Suggest improvements if needed
-
-Focus on the actual code changes in this PR, not general repository issues.
-"""
-        
-        # Create Devin session
-        try:
-            devin_session_id = await devin_client.create_session(
-                instructions=instruction,
-                repo_url=repo_url,
-                branch=pr.head.ref,
-                max_acu_limit=settings.max_acu_limit,
-            )
-        finally:
-            await devin_client.close()
-        
-        # Store session in database
-        db.insert_session(
-            session_id=devin_session_id,
-            issue_url=pr.html_url,
-            repo_url=repo_url,
-            branch=pr.head.ref,
-            status="running",
-        )
-        
-        # Add comment to PR indicating review started
-        github_client.add_comment_to_pr(
-            pr_number,
-            f"Devin review started. Session ID: {devin_session_id}\n\nReview is in progress..."
-        )
-        
-        logger.info(f"Started Devin review for PR #{pr_number}", session_id=devin_session_id)
-        
-        return {
-            "message": f"Devin review started for PR #{pr_number}",
-            "session_id": devin_session_id,
-        }
-        
-    except Exception as e:
-        logger.error("Failed to request Devin review", error=str(e))
-        raise HTTPException(status_code=500, detail="Failed to request Devin review")

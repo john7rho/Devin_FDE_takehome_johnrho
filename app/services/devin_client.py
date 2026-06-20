@@ -153,25 +153,5 @@ class DevinClient:
             if isinstance(m, dict) and (m.get("origin") == "user" or m.get("type") == "user_message")
         )
 
-    async def send_message(self, session_id: str, message: str) -> bool:
-        """Send a follow-up message to a session (resume / steer)."""
-        try:
-            response = await self.client.post(f"/v1/sessions/{session_id}/message", json={"message": message})
-            response.raise_for_status()
-            return True
-        except httpx.HTTPError as e:
-            self.logger.error("Failed to send message", session_id=session_id, error=str(e))
-            return False
-
-    async def terminate_session(self, session_id: str) -> bool:
-        """Terminate a session (DELETE /v1/sessions/{id})."""
-        try:
-            response = await self.client.delete(f"/v1/sessions/{session_id}")
-            response.raise_for_status()
-            return True
-        except httpx.HTTPError as e:
-            self.logger.error("Failed to terminate session", session_id=session_id, error=str(e))
-            return False
-
     async def close(self) -> None:
         await self.client.aclose()

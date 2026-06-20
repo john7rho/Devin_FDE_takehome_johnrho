@@ -52,15 +52,6 @@ class DevinStructuredOutput(BaseModel):
     needs_human: bool = Field(default=False, description="Whether human intervention is needed")
 
 
-class SessionCreate(BaseModel):
-    issue_url: str
-    repo_url: str
-    branch: str
-    requested_fix: str
-    requested_tests: str
-    expected_pr_output: str
-
-
 class SessionResponse(BaseModel):
     session_id: str
     issue_url: str
@@ -92,15 +83,6 @@ class SessionResponse(BaseModel):
         return v
 
 
-class IssueCreate(BaseModel):
-    title: str
-    body: str
-    finding_type: str
-    dependency_name: Optional[str] = None
-    vulnerability_id: Optional[str] = None
-    severity: Optional[str] = None
-
-
 class IssueResponse(BaseModel):
     issue_id: int
     issue_url: str
@@ -123,13 +105,6 @@ class ScanResult(BaseModel):
     affected_versions: List[str]
     fixed_version: Optional[str] = None
     references: List[str] = Field(default_factory=list)
-
-
-class MetricResponse(BaseModel):
-    metric_name: str
-    metric_value: float
-    timestamp: datetime
-    metadata: Optional[Dict[str, Any]]
 
 
 class MetricsSummary(BaseModel):

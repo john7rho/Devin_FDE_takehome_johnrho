@@ -7,30 +7,48 @@ from app.models.schemas import ScanResult
 
 
 def test_pip_audit_parses_findings():
+    # Real pip-audit JSON: dependencies[].vulns[], version is a string, no severity.
     fake = {
         "dependencies": [
             {
                 "name": "flask",
-                "version": ["1.0"],
-                "vulnerabilities": [
+                "version": "1.0",
+                "vulns": [
                     {
                         "id": "CVE-2024-1",
-                        "severity": "HIGH",
                         "description": "bad thing",
                         "fix_versions": ["2.0"],
-                        "references": ["http://nvd/CVE-2024-1"],
+                        "aliases": ["GHSA-xxxx"],
                     }
                 ],
             }
         ]
     }
-    proc = MagicMock(returncode=0, stdout=json.dumps(fake), stderr="")
+    # pip-audit exits 1 WHEN it finds vulnerabilities -- must still parse.
+    proc = MagicMock(returncode=1, stdout=json.dumps(fake), stderr="")
     with patch("subprocess.run", return_value=proc):
         findings = DependencyScanner("/tmp/repo").run_pip_audit()
     assert len(findings) == 1
     assert findings[0].dependency_name == "flask"
     assert findings[0].vulnerability_id == "CVE-2024-1"
     assert findings[0].fixed_version == "2.0"
+    assert findings[0].affected_versions == ["1.0"]
+
+
+def test_pip_audit_nonzero_exit_with_findings_not_dropped():
+    fake = {"dependencies": [{"name": "urllib3", "version": "1.0",
+                              "vulns": [{"id": "CVE-X", "fix_versions": ["2.0"]}]}]}
+    proc = MagicMock(returncode=1, stdout=json.dumps(fake), stderr="")
+    with patch("subprocess.run", return_value=proc):
+        findings = DependencyScanner("/tmp/repo").run_pip_audit()
+    assert [f.vulnerability_id for f in findings] == ["CVE-X"]
+
+
+def test_pip_audit_empty_output_returns_empty():
+    proc = MagicMock(returncode=2, stdout="", stderr="boom")
+    with patch("subprocess.run", return_value=proc):
+        findings = DependencyScanner("/tmp/repo").run_pip_audit()
+    assert findings == []
 
 
 def test_pip_audit_missing_tool_returns_empty():

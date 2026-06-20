@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     scan_interval_hours: int = 24
     enable_pip_audit: bool = True
     enable_pnpm_audit: bool = True
+    # Local checkout the dashboard "Scan" buttons audit (server-side path; the
+    # browser can't supply a filesystem path). Empty -> nothing to scan.
+    scan_repo_path: Optional[str] = None
     
     # Branch Naming Convention
     branch_prefix: str = "fix/dependency"

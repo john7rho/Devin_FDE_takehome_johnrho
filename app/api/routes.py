@@ -166,6 +166,14 @@ async def get_metrics_history(metric_name: str, hours: int = 24):
     return history
 
 
+@router.get("/consumption")
+async def get_consumption():
+    """Aggregate ACU consumption from the Devin consumption API, plus whether the
+    account is entitled to it (per-session ACU is not exposed by the Devin API)."""
+    from app.services import consumption
+    return consumption.get_status()
+
+
 @router.get("/logs/{session_id}")
 async def get_session_logs(session_id: str):
     """Get logs for a specific session."""

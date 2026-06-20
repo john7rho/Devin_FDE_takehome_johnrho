@@ -6,6 +6,7 @@ from pathlib import Path
 from app.core.config import settings
 from app.core.database import db
 from app.models.schemas import MetricsSummary, SessionStatus
+from app.services import consumption
 from app.utils.logger import get_logger
 
 
@@ -77,8 +78,14 @@ class MetricsCollector:
             if cycle_times else 0.0
         )
         
-        # Total ACU used
+        # Total ACU used. Per the Devin docs, ACU is not on the session object;
+        # the consumption API is the only programmatic source (aggregate, gated).
+        # Prefer the real aggregate when entitled; otherwise fall back to the
+        # per-session sum (honest-zero until ACU is available).
         total_acu_used = sum(s.get("acu_used", 0) for s in sessions)
+        real_acus = consumption.get_total_acus()
+        if real_acus is not None:
+            total_acu_used = real_acus
         
         # Failure breakdown
         failure_breakdown: Dict[str, int] = {}

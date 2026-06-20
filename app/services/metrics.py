@@ -79,7 +79,10 @@ class MetricsCollector:
             outcome_rate,
             avg_cycle_time,
             total_acu_used,
-            failure_breakdown
+            failure_breakdown,
+            total_sessions,
+            active_sessions,
+            completed_sessions,
         )
         
         return MetricsSummary(
@@ -100,14 +103,20 @@ class MetricsCollector:
         outcome_rate: float,
         avg_cycle_time: float,
         total_acu_used: float,
-        failure_breakdown: Dict[str, int]
+        failure_breakdown: Dict[str, int],
+        total_sessions: int = 0,
+        active_sessions: int = 0,
+        completed_sessions: int = 0,
     ) -> None:
-        """Record metrics to the metrics table."""
+        """Record metrics to the metrics table (each call appends a history point)."""
         db.record_metric("autonomy_rate", autonomy_rate)
         db.record_metric("outcome_rate", outcome_rate)
         db.record_metric("avg_cycle_time", avg_cycle_time)
         db.record_metric("total_acu_used", total_acu_used)
-        
+        db.record_metric("total_sessions", total_sessions)
+        db.record_metric("active_sessions", active_sessions)
+        db.record_metric("completed_sessions", completed_sessions)
+
         for status, count in failure_breakdown.items():
             db.record_metric(
                 f"failure_{status}",

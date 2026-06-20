@@ -27,3 +27,8 @@ def test_sessions_empty(temp_db):
 def test_unknown_session_404(temp_db):
     r = client.get("/api/v1/sessions/does-not-exist")
     assert r.status_code == 404
+
+
+def test_seed_endpoint_removed(temp_db):
+    r = client.post("/api/v1/seed")
+    assert r.status_code == 404

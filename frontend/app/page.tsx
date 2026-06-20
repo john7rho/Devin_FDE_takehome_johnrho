@@ -14,6 +14,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Github,
+  Database,
+  ExternalLink,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -68,6 +70,11 @@ interface PullRequest {
 type Point = { t: string; v: number };
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
+const SUPERSET_URL = process.env.NEXT_PUBLIC_SUPERSET_URL || "";
+const SUPERSET_PROMPT = `Spin up Apache Superset with example data in your sandbox so I can verify it works end-to-end:
+1) git clone https://github.com/john7rho/superset && cd superset
+2) Boot a single container with examples: docker run -d -p 8088:8088 --name superset apache/superset:4.1.1 ; then inside it run: superset db upgrade && superset fab create-admin --username admin --password admin --firstname a --lastname b --email a@b.com && superset load_examples && superset init && superset run -h 0.0.0.0 -p 8088
+3) Expose port 8088 and confirm the Superset UI loads with the example dashboards (login admin/admin).`;
 
 const NAV: { id: string; label: string; icon: ComponentType<{ className?: string }> }[] = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
@@ -75,6 +82,7 @@ const NAV: { id: string; label: string; icon: ComponentType<{ className?: string
   { id: "issues", label: "Issues", icon: AlertTriangle },
   { id: "pull-requests", label: "Pull Requests", icon: GitPullRequest },
   { id: "run", label: "Start a Run", icon: Play },
+  { id: "superset", label: "Preview Superset", icon: Database },
 ];
 
 const METRICS: { key: string; label: string; fmt: (v: number) => string; get: (m: Metrics | null) => number }[] = [
@@ -201,18 +209,6 @@ export default function Dashboard() {
     }
   };
 
-  const seedDemo = async () => {
-    try {
-      const res = await fetch(`${API_BASE}/seed`, { method: "POST" });
-      const data = await res.json();
-      alert(`Demo data: ${data.status}${data.reason ? ` (${data.reason})` : ""}`);
-      setTimeout(refreshAll, 500);
-    } catch (error) {
-      console.error("Failed to load demo data:", error);
-      alert("Failed to load demo data");
-    }
-  };
-
   const devinLink = (prompt: string) =>
     `https://app.devin.ai/?prompt=${encodeURIComponent(prompt)}`;
 
@@ -320,18 +316,11 @@ export default function Dashboard() {
               john7rho/superset
             </a>
           </div>
-          <div className="mt-1.5 flex items-center justify-between gap-4">
+          <div className="mt-1.5 flex items-center gap-2">
             <h1 className="flex items-center gap-2 text-xl font-semibold tracking-tight text-fg">
               <span aria-hidden>🦫</span>
               Devin Demo on Superset
             </h1>
-            <button
-              onClick={seedDemo}
-              title="Populate the dashboard with demo data so you can test it end-to-end"
-              className="shrink-0 rounded-lg bg-[var(--accent)] px-3.5 py-2 text-sm font-medium text-[var(--accent-fg)] transition hover:opacity-90"
-            >
-              Load demo data
-            </button>
           </div>
         </header>
 
@@ -440,10 +429,36 @@ export default function Dashboard() {
                 <button onClick={() => startRun(true)} className="rounded-lg border border-line px-4 py-2 text-sm font-medium text-fg transition hover:bg-[var(--hover)]">
                   Scan only
                 </button>
-                <button onClick={seedDemo} className="rounded-lg border border-line px-4 py-2 text-sm font-medium text-fg transition hover:bg-[var(--hover)]">
-                  Load demo data
-                </button>
               </div>
+            </div>
+          </section>
+
+          {/* Preview Superset */}
+          <section id="superset" className="scroll-mt-28">
+            <div className="card rounded-xl p-6">
+              <h2 className="text-sm font-semibold text-fg">Preview Superset</h2>
+              <p className="mt-1 text-sm text-muted">Verify the remediated Superset itself, with example data loaded.</p>
+              {SUPERSET_URL ? (
+                <a href={SUPERSET_URL} target="_blank" rel="noopener noreferrer" className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-[var(--accent-fg)] transition hover:opacity-90">
+                  <ExternalLink className="h-4 w-4" /> Open Superset
+                </a>
+              ) : (
+                <div className="mt-4 space-y-4">
+                  <div>
+                    <div className="text-xs font-medium uppercase tracking-wider text-faint">Option A · run locally with Docker</div>
+                    <pre className="mt-2 overflow-x-auto rounded-lg border border-line bg-[var(--thead)] px-4 py-3 text-xs text-fg">{`cd superset-preview && docker compose up
+# first boot loads example dashboards (a few min)
+# then open http://localhost:8088   (admin / admin)`}</pre>
+                  </div>
+                  <div>
+                    <div className="text-xs font-medium uppercase tracking-wider text-faint">Option B · spin it up in a Devin sandbox</div>
+                    <p className="mt-1 text-sm text-muted">Devin boots Superset and loads example data in its own sandbox — no local setup.</p>
+                    <a href={devinLink(SUPERSET_PROMPT)} target="_blank" rel="noopener noreferrer" className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-[var(--accent)] px-4 py-2 text-sm font-medium text-[var(--accent)] transition hover:bg-[var(--accent-soft-bg)]">
+                      <ExternalLink className="h-4 w-4" /> Spin up Superset in Devin
+                    </a>
+                  </div>
+                </div>
+              )}
             </div>
           </section>
 

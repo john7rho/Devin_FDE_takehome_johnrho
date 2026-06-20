@@ -21,8 +21,6 @@ services:
         value: "3.12.8"          # Render-supported; code is 3.11+ compatible
       - key: GITHUB_REPO_NAME
         value: superset
-      - key: SEED_ON_STARTUP
-        value: "true"            # populate demo data on (cold) start
       - key: DEVIN_API_KEY
         sync: false              # set in dashboard (secret)
       - key: GITHUB_TOKEN

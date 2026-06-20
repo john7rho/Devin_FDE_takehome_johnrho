@@ -1,4 +1,3 @@
-import os
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
@@ -15,18 +14,8 @@ logger = get_logger()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Initialize database on startup; optionally seed demo data."""
+    """Log application startup and shutdown."""
     logger.info("Application starting up")
-    # DB is initialized on import. On ephemeral hosts (e.g. Render free tier),
-    # SEED_ON_STARTUP repopulates demo data after a cold start so the dashboard
-    # isn't empty. No-ops if sessions already exist.
-    if os.getenv("SEED_ON_STARTUP", "").lower() in ("1", "true", "yes"):
-        try:
-            from app.core.seed import seed_demo_data
-            logger.info("Seed-on-startup", **seed_demo_data())
-        except Exception as e:
-            logger.error("Seed-on-startup failed", error=str(e))
-
     yield
     logger.info("Application shutting down")
 

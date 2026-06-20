@@ -9,7 +9,6 @@ from app.services.orchestrator import Orchestrator
 from app.services.metrics import MetricsCollector
 from app.utils.logger import get_logger
 from app.core.config import settings
-from app.core.seed import seed_demo_data
 
 router = APIRouter()
 logger = get_logger()
@@ -105,15 +104,6 @@ async def get_metrics():
     return collector.calculate_metrics()
 
 
-@router.post("/seed")
-async def seed_demo():
-    """Populate the database with demo data so reviewers can validate the dashboard
-    end-to-end from zero. Idempotent — no-ops if sessions already exist."""
-    if not settings.demo_mode:
-        raise HTTPException(status_code=403, detail="Demo mode is disabled")
-    return seed_demo_data()
-
-
 @router.get("/metrics/history/{metric_name}")
 async def get_metrics_history(metric_name: str, hours: int = 24):
     """Get historical metrics for a specific metric."""
@@ -163,8 +153,8 @@ async def get_pull_requests():
         return pr_list
         
     except Exception as e:
-        # Degrade gracefully: GitHub may be unconfigured/unreachable (e.g. demo mode,
-        # or GITHUB_REPO_OWNER/NAME not pointing at a real fork). Return an empty list
+        # Degrade gracefully: GitHub may be unconfigured/unreachable, or
+        # GITHUB_REPO_OWNER/NAME may not point at a real fork. Return an empty list
         # so the dashboard still renders instead of crashing on `pullRequests.map`.
         logger.error("Failed to fetch pull requests", error=str(e))
         return []

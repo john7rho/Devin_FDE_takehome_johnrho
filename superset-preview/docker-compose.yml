@@ -1,0 +1,32 @@
+# One-command Apache Superset with example data, so reviewers can verify a
+# working Superset (the app Devin remediates) end-to-end.
+#
+#   cd superset-preview && docker compose up
+#   → open http://localhost:8088   (login: admin / admin)
+#
+# First boot runs DB migrations + loads example dashboards/datasets (a few minutes).
+# Single container + SQLite metadata — fine for a demo, not for production.
+services:
+  superset:
+    image: apache/superset:4.1.1
+    container_name: superset-preview
+    ports:
+      - "8088:8088"
+    environment:
+      SUPERSET_SECRET_KEY: "demo-secret-change-me-in-prod"
+    command:
+      - /bin/bash
+      - -c
+      - |
+        set -e
+        superset db upgrade
+        superset fab create-admin --username admin --firstname Demo --lastname Admin \
+          --email admin@example.com --password admin || true
+        superset load_examples
+        superset init
+        /usr/bin/run-server.sh
+    volumes:
+      - superset_home:/app/superset_home
+
+volumes:
+  superset_home:

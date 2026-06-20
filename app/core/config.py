@@ -10,7 +10,6 @@ class Settings(BaseSettings):
     devin_api_url: str = "https://api.devin.ai"
     max_acu_limit: int = 10
     max_concurrent_sessions: int = 3
-    demo_mode: bool = True  # expose POST /seed so reviewers can populate demo data from zero
     
     # GitHub Configuration
     github_token: str

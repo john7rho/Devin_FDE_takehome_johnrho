@@ -52,4 +52,4 @@ Build an event-driven automation using the Devin API (docs.devin.ai).
 # Advanced
 - Since Devin has collaborative sandboxes, allow multiple users to work on the same run simultaneously and coordinate their changes; a human reviwer can open a Devin session to inspect the shell history, review the diff in the IDE, run commands in teh same env, complete auth/manual steps, resume Devin with a structured message
 scanner -> ticket -> Devin session -> live sandbox -> PR -> evidence -> optional human rescue -> resumed Devin
-- On superset, create a dogfood interface in that we can have a seeded mock mode that reviewers can run from zero to validate the system end-to-end inside the web interface
+- On superset, create a dogfood interface that reviewers can run from zero against real scan/run data; do not seed mock issues into the dashboard

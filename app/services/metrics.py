@@ -1,6 +1,9 @@
+import json
 from typing import Any, Dict, List
 from datetime import datetime, timedelta
+from pathlib import Path
 
+from app.core.config import settings
 from app.core.database import db
 from app.models.schemas import MetricsSummary, SessionStatus
 from app.utils.logger import get_logger
@@ -26,13 +29,24 @@ class MetricsCollector:
                 total_sessions=0,
                 active_sessions=0,
                 completed_sessions=0,
-                failed_sessions=0
+                failed_sessions=0,
+                blocked_sessions=0,
+                outcome_breakdown={"success": 0, "blocked": 0, "failed": 0},
             )
-        
+
         total_sessions = len(sessions)
         active_sessions = len([s for s in sessions if s["status"] == SessionStatus.RUNNING.value])
         completed_sessions = len([s for s in sessions if s["status"] == SessionStatus.FINISHED.value])
         failed_sessions = len([s for s in sessions if s["status"] in SessionStatus.failure_values()])
+        blocked_sessions = len([s for s in sessions if s["status"] in SessionStatus.waiting_values()])
+
+        # SPEC outcome classification: success=finished, blocked=waiting_for_user/approval,
+        # failed=error/out_of_credits/usage_limit_exceeded
+        outcome_breakdown = {
+            "success": completed_sessions,
+            "blocked": blocked_sessions,
+            "failed": failed_sessions,
+        }
         
         # Autonomy rate: % finished with human_msgs=0
         autonomous_sessions = [
@@ -83,8 +97,9 @@ class MetricsCollector:
             total_sessions,
             active_sessions,
             completed_sessions,
+            blocked_sessions,
         )
-        
+
         return MetricsSummary(
             autonomy_rate=autonomy_rate,
             outcome_rate=outcome_rate,
@@ -94,9 +109,11 @@ class MetricsCollector:
             total_sessions=total_sessions,
             active_sessions=active_sessions,
             completed_sessions=completed_sessions,
-            failed_sessions=failed_sessions
+            failed_sessions=failed_sessions,
+            blocked_sessions=blocked_sessions,
+            outcome_breakdown=outcome_breakdown,
         )
-    
+
     def _record_metrics_to_db(
         self,
         autonomy_rate: float,
@@ -107,6 +124,7 @@ class MetricsCollector:
         total_sessions: int = 0,
         active_sessions: int = 0,
         completed_sessions: int = 0,
+        blocked_sessions: int = 0,
     ) -> None:
         """Record metrics to the metrics table (each call appends a history point)."""
         db.record_metric("autonomy_rate", autonomy_rate)
@@ -114,6 +132,7 @@ class MetricsCollector:
         db.record_metric("avg_cycle_time", avg_cycle_time)
         db.record_metric("total_acu_used", total_acu_used)
         db.record_metric("total_sessions", total_sessions)
+        db.record_metric("blocked_sessions", blocked_sessions)
         db.record_metric("active_sessions", active_sessions)
         db.record_metric("completed_sessions", completed_sessions)
 
@@ -137,11 +156,26 @@ class MetricsCollector:
         
         return filtered
     
-    def get_session_logs(self, session_id: str) -> List[Dict[str, Any]]:
-        """Get all logs for a specific session."""
-        # This would read from the log file
-        # For now, return session data from database
-        session = db.get_session(session_id)
-        if session:
-            return [session]
-        return []
+    def get_session_logs(self, session_id: str, limit: int = 500) -> List[Dict[str, Any]]:
+        """Return the structured log lines tagged with this session_id, read from
+        the append-only JSONL store. Newest `limit` lines, in chronological order."""
+        log_file = Path(settings.log_path) / "sessions.jsonl"
+        if not log_file.exists():
+            return []
+        out: List[Dict[str, Any]] = []
+        try:
+            with log_file.open() as f:
+                for line in f:
+                    line = line.strip()
+                    # cheap pre-filter: skip lines that can't reference this session
+                    if not line or session_id not in line:
+                        continue
+                    try:
+                        entry = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if entry.get("session_id") == session_id:
+                        out.append(entry)
+        except OSError:
+            return []
+        return out[-limit:]

@@ -2,6 +2,8 @@ import asyncio
 from typing import List, Optional
 import uuid
 
+import structlog
+
 from app.core.config import settings
 from app.core.database import db
 from app.models.schemas import SessionStatus, IssueStatus, DevinStructuredOutput
@@ -25,7 +27,12 @@ class Orchestrator:
         session_id = str(uuid.uuid4())
         session_logger = SessionLogger(session_id)
         devin_client: Optional[DevinClient] = None
-        
+
+        # Tag EVERY log line emitted within this session's async context with
+        # session_id — including the Devin client, which uses a generic logger.
+        # Task-local contextvars keep concurrent sessions from cross-tagging.
+        structlog.contextvars.bind_contextvars(session_id=session_id)
+
         try:
             # Generate branch name
             branch_name = f"{settings.branch_prefix}/{session_id[:8]}"
@@ -67,6 +74,7 @@ class Orchestrator:
                 status=status.value,
                 status_detail=str(result.get("status") or ""),
                 human_msgs=DevinClient.count_human_messages(result),
+                acu_used=DevinClient.extract_acu(result),
             )
 
             session_logger.info("Session completed", status=status.value)
@@ -110,6 +118,7 @@ class Orchestrator:
             if devin_client:
                 await devin_client.close()
             self.active_sessions.discard(session_id)
+            structlog.contextvars.unbind_contextvars("session_id")
     
     async def process_pending_issues(self, repo_path: Optional[str] = None) -> List[str]:
         """Process all pending issues with concurrency control."""

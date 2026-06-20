@@ -143,3 +143,7 @@ class MetricsSummary(BaseModel):
     active_sessions: int
     completed_sessions: int
     failed_sessions: int
+    blocked_sessions: int = 0
+    # SPEC outcome classification: finished->success, waiting->blocked,
+    # error/out_of_credits/usage_limit_exceeded->failed
+    outcome_breakdown: Dict[str, int] = Field(default_factory=dict)

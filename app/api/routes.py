@@ -1,5 +1,6 @@
 from typing import List, Optional
 
+import structlog
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 
@@ -49,6 +50,12 @@ class RunResponse(BaseModel):
     run_id: str
     status: str
     message: str
+    scan_only: Optional[bool] = None
+    issues_found: Optional[int] = None
+    sessions_started: Optional[int] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+    error_message: Optional[str] = None
 
 
 @router.post("/runs", response_model=RunResponse)
@@ -58,45 +65,66 @@ async def create_run(run: RunCreate, background_tasks: BackgroundTasks):
     
     run_id = str(uuid.uuid4())
     logger.info("Creating run", run_id=run_id, scan_only=run.scan_only)
-    
+    db.insert_run(run_id, status="running", scan_only=run.scan_only)
+
     orchestrator = Orchestrator()
-    
+
     async def execute_run():
+        # Tag every line in this run with run_id (covers the pre-session scan +
+        # GitHub logs that have no session_id yet).
+        structlog.contextvars.bind_contextvars(run_id=run_id)
+        issues_found = 0
+        sessions_started = 0
         try:
             if run.repo_path:
                 # Scan a local checkout and create issues for findings.
                 issue_urls = await orchestrator.scan_and_create_issues(run.repo_path)
-                logger.info("Scan completed", run_id=run_id, issues_created=len(issue_urls))
+                issues_found = len(issue_urls)
+                logger.info("Scan completed", run_id=run_id, issues_created=issues_found)
 
             # scan_only must be honored regardless of repo_path. The old code only
             # checked it inside the repo_path branch, so "Scan only" with no checkout
             # fell through to dispatching a Devin session for EVERY pending issue.
             if not run.scan_only:
                 session_ids = await orchestrator.process_pending_issues(run.repo_path)
-                logger.info("Processing completed", run_id=run_id, sessions=len(session_ids))
+                sessions_started = len(session_ids)
+                logger.info("Processing completed", run_id=run_id, sessions=sessions_started)
             elif not run.repo_path:
                 logger.info("Scan-only run with no repo_path: nothing to scan or process", run_id=run_id)
+            db.update_run(run_id, status="completed", issues_found=issues_found, sessions_started=sessions_started)
         except Exception as e:
             logger.error("Run failed", run_id=run_id, error=str(e))
-    
+            db.update_run(run_id, status="error", error_message=str(e),
+                          issues_found=issues_found, sessions_started=sessions_started)
+        finally:
+            structlog.contextvars.unbind_contextvars("run_id")
+
     background_tasks.add_task(execute_run)
-    
+
     return RunResponse(
         run_id=run_id,
         status="started",
-        message="Run started in background"
+        message="Run started in background",
+        scan_only=run.scan_only,
     )
 
 
 @router.get("/runs/{run_id}", response_model=RunResponse)
 async def get_run(run_id: str):
-    """Get the status of a run."""
-    # For now, return a simple response
-    # In a real implementation, we'd track runs in the database
+    """Get the status of a run from the runs state table."""
+    run = db.get_run(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
     return RunResponse(
-        run_id=run_id,
-        status="unknown",
-        message="Run tracking not fully implemented"
+        run_id=run["run_id"],
+        status=run["status"],
+        message=f"Run {run['status']}",
+        scan_only=bool(run.get("scan_only")),
+        issues_found=run.get("issues_found"),
+        sessions_started=run.get("sessions_started"),
+        created_at=str(run.get("created_at")) if run.get("created_at") else None,
+        updated_at=str(run.get("updated_at")) if run.get("updated_at") else None,
+        error_message=run.get("error_message"),
     )
 
 

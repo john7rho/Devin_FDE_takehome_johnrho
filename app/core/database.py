@@ -65,6 +65,20 @@ class Database:
             )
         """)
 
+        # Runs table - tracks each POST /runs invocation (for GET /runs/{id})
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS runs (
+                run_id TEXT PRIMARY KEY,
+                status TEXT NOT NULL,
+                scan_only INTEGER DEFAULT 0,
+                issues_found INTEGER DEFAULT 0,
+                sessions_started INTEGER DEFAULT 0,
+                error_message TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
         # Migration for pre-existing DBs: add devin_session_id if it's absent.
         try:
             cursor.execute("ALTER TABLE sessions ADD COLUMN devin_session_id TEXT")
@@ -128,6 +142,35 @@ class Database:
                 cursor.execute("SELECT * FROM sessions ORDER BY created_at DESC")
             return [dict(row) for row in cursor.fetchall()]
     
+    def insert_run(self, run_id: str, status: str = "running", scan_only: bool = False) -> None:
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT OR REPLACE INTO runs (run_id, status, scan_only, created_at, updated_at)
+                VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """, (run_id, status, 1 if scan_only else 0))
+            conn.commit()
+
+    def update_run(self, run_id: str, **kwargs: Any) -> None:
+        if not kwargs:
+            return
+        set_clause = ", ".join([f"{k} = ?" for k in kwargs.keys()])
+        values = list(kwargs.values()) + [run_id]
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(f"""
+                UPDATE runs SET {set_clause}, updated_at = CURRENT_TIMESTAMP
+                WHERE run_id = ?
+            """, values)
+            conn.commit()
+
+    def get_run(self, run_id: str) -> Optional[dict[str, Any]]:
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM runs WHERE run_id = ?", (run_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
     def insert_issue(self, issue_url: str, title: str, finding_type: str,
                     dependency_name: Optional[str] = None, vulnerability_id: Optional[str] = None,
                     severity: Optional[str] = None) -> int:

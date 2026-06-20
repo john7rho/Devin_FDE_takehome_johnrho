@@ -124,6 +124,24 @@ class DevinClient:
             return None
 
     @staticmethod
+    def extract_acu(session: Dict[str, Any]) -> float:
+        """Pull ACUs consumed off a v1 session response. The field has moved
+        around across API versions, so check the known names (top-level and
+        under a `usage` object) and fall back to 0.0."""
+        candidates = ("acu_used", "acus_used", "acu", "acus", "compute_units_used", "acu_consumed")
+        for key in candidates:
+            v = session.get(key)
+            if isinstance(v, (int, float)):
+                return float(v)
+        usage = session.get("usage")
+        if isinstance(usage, dict):
+            for key in candidates:
+                v = usage.get(key)
+                if isinstance(v, (int, float)):
+                    return float(v)
+        return 0.0
+
+    @staticmethod
     def count_human_messages(session: Dict[str, Any]) -> int:
         """Count human-authored messages (for the autonomy metric)."""
         messages = session.get("messages") or []

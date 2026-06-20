@@ -29,6 +29,18 @@ PENDING = [
     ("urllib3", "CVE-2023-43804", "MEDIUM"),
 ]
 
+# Real issue numbers created on the fork so the seeded "Issue" links resolve
+# (github.com/<owner>/<repo>/issues/<n>) instead of 404'ing.
+ISSUE_NUMBERS = {
+    "flask": 1,
+    "cryptography": 2,
+    "sqlparse": 3,
+    "@babel/traverse": 4,
+    "postcss": 5,
+    "lodash": 6,
+    "urllib3": 7,
+}
+
 
 def seed_demo_data(force: bool = False) -> dict:
     """Insert the demo dataset. No-ops if sessions already exist (unless force)."""
@@ -39,8 +51,7 @@ def seed_demo_data(force: bool = False) -> dict:
     repo_url = f"https://github.com/{owner_repo}.git"
 
     for i, (dep, cve, sev, outcome, acu, hmsgs) in enumerate(PROCESSED):
-        n = 100 + i
-        issue_url = f"https://github.com/{owner_repo}/issues/{n}"
+        issue_url = f"https://github.com/{owner_repo}/issues/{ISSUE_NUMBERS[dep]}"
         db.insert_issue(issue_url=issue_url, title=f"Dependency vulnerability: {dep}",
                         finding_type="dependency", dependency_name=dep,
                         vulnerability_id=cve, severity=sev)
@@ -62,9 +73,8 @@ def seed_demo_data(force: bool = False) -> dict:
                               error_message="Build failed after version bump (peer-dep conflict).")
             db.update_issue(issue_url, session_id=sid, status=IssueStatus.FAILED.value)
 
-    for j, (dep, cve, sev) in enumerate(PENDING):
-        n = 200 + j
-        db.insert_issue(issue_url=f"https://github.com/{owner_repo}/issues/{n}",
+    for dep, cve, sev in PENDING:
+        db.insert_issue(issue_url=f"https://github.com/{owner_repo}/issues/{ISSUE_NUMBERS[dep]}",
                         title=f"Dependency vulnerability: {dep}", finding_type="dependency",
                         dependency_name=dep, vulnerability_id=cve, severity=sev)
 

@@ -52,8 +52,8 @@ class Orchestrator:
                 idempotent=True,
             )
 
-            # Update session status
-            db.update_session(session_id, status="running", status_detail="session_created")
+            # Update session status (persist the Devin session id so the UI can deep-link to it)
+            db.update_session(session_id, status="running", status_detail="session_created", devin_session_id=devin_session_id)
             session_logger.info("Devin session created", devin_session_id=devin_session_id, devin_url=devin_url)
 
             # Wait for completion (terminal or blocked-on-human)

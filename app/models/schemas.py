@@ -75,6 +75,7 @@ class SessionResponse(BaseModel):
     pr_url: Optional[str]
     structured_output: Optional[Dict[str, Any]]
     error_message: Optional[str]
+    devin_session_id: Optional[str] = None
 
     @field_validator("structured_output", mode="before")
     @classmethod

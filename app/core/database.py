@@ -32,7 +32,8 @@ class Database:
                 human_msgs INTEGER DEFAULT 0,
                 pr_url TEXT,
                 structured_output TEXT,
-                error_message TEXT
+                error_message TEXT,
+                devin_session_id TEXT
             )
         """)
         
@@ -63,7 +64,13 @@ class Database:
                 metadata TEXT
             )
         """)
-        
+
+        # Migration for pre-existing DBs: add devin_session_id if it's absent.
+        try:
+            cursor.execute("ALTER TABLE sessions ADD COLUMN devin_session_id TEXT")
+        except sqlite3.OperationalError:
+            pass
+
         conn.commit()
         conn.close()
     

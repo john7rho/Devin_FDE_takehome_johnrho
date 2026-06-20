@@ -43,6 +43,7 @@ interface Session {
   branch: string;
   acu_used: number;
   created_at: string;
+  devin_session_id?: string | null;
 }
 
 interface Issue {
@@ -354,7 +355,7 @@ export default function Dashboard() {
             {filteredSessions.length === 0 ? (
               <Empty>{sessions.length === 0 ? "No sessions yet." : "No matching sessions."}</Empty>
             ) : (
-              <Table head={["Session", "Status", "Issue", "Branch", "ACU", "Created"]}>
+              <Table head={["Session", "Status", "Issue", "Branch", "ACU", "Created", ""]}>
                 {filteredSessions.map((s) => (
                   <tr key={s.session_id} className="border-t border-line transition hover:bg-[var(--hover)]">
                     <td className={`${TD} ${MONO}`}>{s.session_id.substring(0, 8)}</td>
@@ -362,7 +363,21 @@ export default function Dashboard() {
                     <td className={TD}><a href={s.issue_url} target="_blank" rel="noopener noreferrer" className={LINK}>Issue</a></td>
                     <td className={`${TD} ${MONO}`}>{s.branch || "—"}</td>
                     <td className={`${TD} tabular-nums`}>{s.acu_used.toFixed(2)}</td>
-                    <td className={`${TD} text-muted`}>{new Date(s.created_at).toLocaleString()}</td>
+                    <td className={`${TD} text-muted whitespace-nowrap`}>{new Date(s.created_at).toLocaleString()}</td>
+                    <td className={`${TD} text-right`}>
+                      {s.devin_session_id ? (
+                        <a
+                          href={`https://app.devin.ai/sessions/${s.devin_session_id.replace(/^devin-/, "")}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-block whitespace-nowrap rounded-md border border-[var(--accent)] px-2.5 py-1 text-xs font-medium text-[var(--accent)] transition hover:bg-[var(--accent-soft-bg)]"
+                        >
+                          Open in Devin
+                        </a>
+                      ) : (
+                        <span className="text-faint">—</span>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </Table>

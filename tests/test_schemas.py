@@ -3,7 +3,7 @@ are now the single source of truth for status classification."""
 import pytest
 from pydantic import ValidationError
 
-from app.models.schemas import SessionStatus, DevinStructuredOutput
+from app.models.schemas import SessionStatus, DevinStructuredOutput, SessionResponse
 
 
 def test_failure_values():
@@ -50,3 +50,33 @@ def test_structured_output_valid_defaults():
     assert out.needs_human is False
     assert out.files_changed == []
     assert out.pr_url is None
+
+
+def _session_row(**over):
+    d = dict(
+        session_id="s1", issue_url="https://x/issues/7", repo_url="https://x.git",
+        branch="fix/dep/s1", status="waiting_for_user", status_detail="running",
+        created_at="2026-06-20 02:29:29", updated_at="2026-06-20 02:41:08",
+        acu_used=0.0, human_msgs=0, pr_url="", structured_output=None, error_message=None,
+    )
+    d.update(over)
+    return d
+
+
+def test_session_response_coerces_structured_output_json_string():
+    # The DB stores structured_output as a JSON string; the response model must parse it.
+    r = SessionResponse(**_session_row(structured_output='{"summary":"did it","needs_human":true}'))
+    assert isinstance(r.structured_output, dict)
+    assert r.structured_output["summary"] == "did it"
+
+
+def test_session_response_empty_structured_output_is_none():
+    assert SessionResponse(**_session_row(structured_output="")).structured_output is None
+
+
+def test_session_response_dict_structured_output_passthrough():
+    assert SessionResponse(**_session_row(structured_output={"a": 1})).structured_output == {"a": 1}
+
+
+def test_session_response_bad_json_structured_output_is_none():
+    assert SessionResponse(**_session_row(structured_output="{not valid json")).structured_output is None

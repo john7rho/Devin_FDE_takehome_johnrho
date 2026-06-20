@@ -1,4 +1,6 @@
-from pydantic import BaseModel, Field
+import json
+
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from enum import Enum
@@ -73,6 +75,20 @@ class SessionResponse(BaseModel):
     pr_url: Optional[str]
     structured_output: Optional[Dict[str, Any]]
     error_message: Optional[str]
+
+    @field_validator("structured_output", mode="before")
+    @classmethod
+    def _parse_structured_output(cls, v: Any) -> Any:
+        """DB stores structured_output as a JSON string; coerce it to a dict."""
+        if isinstance(v, str):
+            v = v.strip()
+            if not v:
+                return None
+            try:
+                return json.loads(v)
+            except (json.JSONDecodeError, ValueError):
+                return None
+        return v
 
 
 class IssueCreate(BaseModel):

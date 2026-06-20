@@ -1,7 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Activity, GitPullRequest, AlertTriangle, Clock, Zap, BarChart3 } from "lucide-react";
+import { useEffect, useState, type ReactNode, type ComponentType } from "react";
+import {
+  LayoutDashboard,
+  Activity,
+  AlertTriangle,
+  GitPullRequest,
+  Play,
+  RefreshCw,
+  Sun,
+  Moon,
+  Copy,
+  Check,
+} from "lucide-react";
 
 interface Metrics {
   total_sessions: number;
@@ -36,20 +47,45 @@ interface PullRequest {
   title: string;
   html_url: string;
   state: string;
-  user: string;
-  created_at: string;
-  updated_at: string;
-  mergeable: boolean | null;
-  mergeable_state: string;
   head_ref: string;
   base_ref: string;
   additions: number;
   deletions: number;
-  commits: number;
+  mergeable: boolean | null;
+  mergeable_state: string;
   reviewers: string[];
 }
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
+
+const NAV: { id: string; label: string; icon: ComponentType<{ className?: string }> }[] = [
+  { id: "overview", label: "Overview", icon: LayoutDashboard },
+  { id: "sessions", label: "Sessions", icon: Activity },
+  { id: "issues", label: "Issues", icon: AlertTriangle },
+  { id: "pull-requests", label: "Pull Requests", icon: GitPullRequest },
+  { id: "run", label: "Start a Run", icon: Play },
+];
+
+const BADGE = "inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium";
+function statusBadge(status: string) {
+  const s = status.toLowerCase();
+  if (s === "finished" || s === "completed") return `${BADGE} bg-[var(--ok-bg)] text-[var(--ok-fg)]`;
+  if (s === "error" || s === "failed") return `${BADGE} bg-[var(--err-bg)] text-[var(--err-fg)]`;
+  if (s.startsWith("waiting") || s === "running" || s === "in_progress")
+    return `${BADGE} bg-[var(--warn-bg)] text-[var(--warn-fg)]`;
+  return `${BADGE} bg-[var(--neutral-bg)] text-[var(--neutral-fg)]`;
+}
+function severityBadge(sev: string) {
+  const s = (sev || "").toLowerCase();
+  if (s === "critical" || s === "high") return `${BADGE} bg-[var(--err-bg)] text-[var(--err-fg)]`;
+  if (s === "medium") return `${BADGE} bg-[var(--warn-bg)] text-[var(--warn-fg)]`;
+  return `${BADGE} bg-[var(--neutral-bg)] text-[var(--neutral-fg)]`;
+}
+
+const TH = "px-5 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-faint";
+const TD = "px-5 py-3 align-middle text-fg";
+const LINK = "text-[var(--accent)] hover:underline underline-offset-2";
+const MONO = "font-mono text-xs text-muted";
 
 export default function Dashboard() {
   const [metrics, setMetrics] = useState<Metrics | null>(null);
@@ -57,12 +93,14 @@ export default function Dashboard() {
   const [issues, setIssues] = useState<Issue[]>([]);
   const [pullRequests, setPullRequests] = useState<PullRequest[]>([]);
   const [loading, setLoading] = useState(true);
+  const [active, setActive] = useState("overview");
+  const [dark, setDark] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const fetchMetrics = async () => {
     try {
-      const response = await fetch(`${API_BASE}/metrics`);
-      const data = await response.json();
-      setMetrics(data);
+      const res = await fetch(`${API_BASE}/metrics`);
+      setMetrics(await res.json());
     } catch (error) {
       console.error("Failed to fetch metrics:", error);
     }
@@ -70,9 +108,9 @@ export default function Dashboard() {
 
   const fetchSessions = async () => {
     try {
-      const response = await fetch(`${API_BASE}/sessions`);
-      const data = await response.json();
-      setSessions(data);
+      const res = await fetch(`${API_BASE}/sessions`);
+      const data = await res.json();
+      setSessions(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error("Failed to fetch sessions:", error);
     }
@@ -80,9 +118,9 @@ export default function Dashboard() {
 
   const fetchIssues = async () => {
     try {
-      const response = await fetch(`${API_BASE}/issues`);
-      const data = await response.json();
-      setIssues(data);
+      const res = await fetch(`${API_BASE}/issues`);
+      const data = await res.json();
+      setIssues(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error("Failed to fetch issues:", error);
     }
@@ -90,9 +128,9 @@ export default function Dashboard() {
 
   const fetchPullRequests = async () => {
     try {
-      const response = await fetch(`${API_BASE}/pull-requests`);
-      const data = await response.json();
-      setPullRequests(data);
+      const res = await fetch(`${API_BASE}/pull-requests`);
+      const data = await res.json();
+      setPullRequests(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error("Failed to fetch pull requests:", error);
     }
@@ -107,14 +145,12 @@ export default function Dashboard() {
 
   const startRun = async (scanOnly: boolean) => {
     try {
-      const response = await fetch(`${API_BASE}/runs`, {
+      const res = await fetch(`${API_BASE}/runs`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ scan_only: scanOnly }),
       });
-      const data = await response.json();
+      const data = await res.json();
       alert(`Run started: ${data.run_id}`);
       setTimeout(refreshAll, 2000);
     } catch (error) {
@@ -123,412 +159,311 @@ export default function Dashboard() {
     }
   };
 
-  const addReviewer = async (prNumber: number, reviewer: string) => {
-    try {
-      const response = await fetch(`${API_BASE}/pull-requests/${prNumber}/reviewers`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ reviewer }),
-      });
-      if (response.ok) {
-        alert(`Added ${reviewer} as reviewer`);
-        setTimeout(refreshAll, 2000);
-      } else {
-        alert("Failed to add reviewer");
-      }
-    } catch (error) {
-      console.error("Failed to add reviewer:", error);
-      alert("Failed to add reviewer");
-    }
-  };
-
-  const removeReviewer = async (prNumber: number, reviewer: string) => {
-    try {
-      const response = await fetch(`${API_BASE}/pull-requests/${prNumber}/reviewers/${reviewer}`, {
-        method: "DELETE",
-      });
-      if (response.ok) {
-        alert(`Removed ${reviewer} as reviewer`);
-        setTimeout(refreshAll, 2000);
-      } else {
-        alert("Failed to remove reviewer");
-      }
-    } catch (error) {
-      console.error("Failed to remove reviewer:", error);
-      alert("Failed to remove reviewer");
-    }
-  };
-
-  const requestDevinReview = async (prNumber: number) => {
-    try {
-      const response = await fetch(`${API_BASE}/pull-requests/${prNumber}/review`, {
-        method: "POST",
-      });
-      if (response.ok) {
-        const data = await response.json();
-        alert(`Devin review started: ${data.session_id}`);
-        setTimeout(refreshAll, 2000);
-      } else {
-        alert("Failed to request Devin review");
-      }
-    } catch (error) {
-      console.error("Failed to request Devin review:", error);
-      alert("Failed to request Devin review");
-    }
-  };
-
   useEffect(() => {
+    setDark(document.documentElement.classList.contains("dark"));
     refreshAll();
     setLoading(false);
     const interval = setInterval(refreshAll, 30000);
     return () => clearInterval(interval);
   }, []);
 
-  const getMergeStatusColor = (mergeable: boolean | null, mergeable_state: string) => {
-    if (mergeable === true) return "bg-green-100 text-green-800";
-    if (mergeable === false) return "bg-red-100 text-red-800";
-    if (mergeable_state === "draft") return "bg-gray-100 text-gray-800";
-    return "bg-yellow-100 text-yellow-800";
+  useEffect(() => {
+    const obs = new IntersectionObserver(
+      (entries) => entries.forEach((e) => e.isIntersecting && setActive(e.target.id)),
+      { rootMargin: "-45% 0px -50% 0px" }
+    );
+    NAV.forEach((n) => {
+      const el = document.getElementById(n.id);
+      if (el) obs.observe(el);
+    });
+    return () => obs.disconnect();
+  }, [loading]);
+
+  const goTo = (id: string) => {
+    setActive(id);
+    document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
-  const getMergeStatusText = (mergeable: boolean | null, mergeable_state: string) => {
-    if (mergeable === true) return "Mergeable";
-    if (mergeable === false) return "Conflicts";
-    if (mergeable_state === "draft") return "Draft";
-    return "Checking";
+  const toggleTheme = () => {
+    const next = !dark;
+    setDark(next);
+    document.documentElement.classList.toggle("dark", next);
+    localStorage.setItem("theme", next ? "dark" : "light");
   };
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "finished":
-        return "bg-green-100 text-green-800";
-      case "running":
-        return "bg-blue-100 text-blue-800";
-      case "error":
-        return "bg-red-100 text-red-800";
-      default:
-        return "bg-yellow-100 text-yellow-800";
-    }
+  const copyApi = () => {
+    navigator.clipboard?.writeText(API_BASE);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
   };
+
+  const mergeText = (m: boolean | null, state: string) =>
+    m === true ? "Mergeable" : m === false ? "Conflicts" : state === "draft" ? "Draft" : "Checking";
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-xl">Loading dashboard...</div>
+      <div className="flex min-h-screen items-center justify-center text-sm text-muted">
+        Loading dashboard…
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
-      <div className="container mx-auto px-4 py-8">
-        {/* Header */}
-        <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-8 mb-8 border border-white/20">
-          <h1 className="text-4xl font-bold text-white mb-2">Devin Automation Dashboard</h1>
-          <p className="text-white/70">Event-driven automation using Devin API for Superset issue remediation</p>
-        </div>
-
-        {/* Metrics Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
-          <MetricCard
-            title="Total Sessions"
-            value={metrics?.total_sessions || 0}
-            subtitle="All time"
-            icon={<Activity className="w-6 h-6" />}
-            color="from-blue-500 to-blue-600"
-          />
-          <MetricCard
-            title="Active Sessions"
-            value={metrics?.active_sessions || 0}
-            subtitle="Currently running"
-            icon={<Zap className="w-6 h-6" />}
-            color="from-yellow-500 to-orange-500"
-          />
-          <MetricCard
-            title="Autonomy Rate"
-            value={`${metrics?.autonomy_rate?.toFixed(1) || 0}%`}
-            subtitle="% finished without human"
-            icon={<BarChart3 className="w-6 h-6" />}
-            color="from-green-500 to-emerald-500"
-          />
-          <MetricCard
-            title="Outcome Rate"
-            value={`${metrics?.outcome_rate?.toFixed(1) || 0}%`}
-            subtitle="% successful completions"
-            icon={<GitPullRequest className="w-6 h-6" />}
-            color="from-purple-500 to-pink-500"
-          />
-          <MetricCard
-            title="Avg Cycle Time"
-            value={`${metrics?.avg_cycle_time?.toFixed(0) || 0}s`}
-            subtitle="Seconds per session"
-            icon={<Clock className="w-6 h-6" />}
-            color="from-cyan-500 to-blue-500"
-          />
-          <MetricCard
-            title="Total ACU Used"
-            value={metrics?.total_acu_used?.toFixed(2) || 0}
-            subtitle="Compute units consumed"
-            icon={<AlertTriangle className="w-6 h-6" />}
-            color="from-red-500 to-orange-500"
-          />
-        </div>
-
-        {/* Sessions Table */}
-        <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-8 mb-8 border border-white/20">
-          <div className="flex justify-between items-center mb-6">
-            <h2 className="text-2xl font-bold text-white">Sessions</h2>
-            <button
-              onClick={refreshAll}
-              className="px-4 py-2 bg-white/20 hover:bg-white/30 text-white rounded-lg transition"
-            >
-              Refresh
-            </button>
+    <div className="flex min-h-screen">
+      {/* Sidebar */}
+      <aside className="sticky top-0 flex h-screen w-60 shrink-0 flex-col border-r border-line bg-[var(--sidebar)]">
+        <div className="flex items-center gap-2.5 px-5 py-5">
+          <div className="flex h-7 w-7 items-center justify-center rounded-md bg-[var(--accent)] text-[var(--accent-fg)]">
+            <Activity className="h-4 w-4" />
           </div>
-          {sessions.length === 0 ? (
-            <div className="text-center text-white/50 py-8">No sessions found</div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="text-left text-white/70 border-b border-white/20">
-                    <th className="pb-4">Session ID</th>
-                    <th className="pb-4">Status</th>
-                    <th className="pb-4">Issue URL</th>
-                    <th className="pb-4">Branch</th>
-                    <th className="pb-4">ACU Used</th>
-                    <th className="pb-4">Created</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sessions.map((session) => (
-                    <tr key={session.session_id} className="border-b border-white/10">
-                      <td className="py-4 text-white font-mono text-sm">
-                        {session.session_id.substring(0, 8)}
-                      </td>
-                      <td className="py-4">
-                        <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(session.status)}`}>
-                          {session.status}
-                        </span>
-                      </td>
-                      <td className="py-4">
-                        <a href={session.issue_url} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300">
-                          Issue
-                        </a>
-                      </td>
-                      <td className="py-4 text-white font-mono text-sm">{session.branch || "-"}</td>
-                      <td className="py-4 text-white">{session.acu_used.toFixed(2)}</td>
-                      <td className="py-4 text-white/70 text-sm">{new Date(session.created_at).toLocaleString()}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          <div className="leading-tight">
+            <div className="text-sm font-semibold text-fg">Devin Automation</div>
+            <div className="text-xs text-faint">Superset remediation</div>
+          </div>
+        </div>
+
+        <nav className="flex-1 space-y-0.5 px-3 py-2">
+          {NAV.map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              onClick={() => goTo(id)}
+              className={`flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition ${
+                active === id
+                  ? "bg-[var(--hover)] font-medium text-fg"
+                  : "text-muted hover:bg-[var(--hover)] hover:text-fg"
+              }`}
+            >
+              <Icon className="h-4 w-4" />
+              {label}
+            </button>
+          ))}
+        </nav>
+
+        <div className="border-t border-line p-3">
+          <button
+            onClick={toggleTheme}
+            className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-sm text-muted transition hover:bg-[var(--hover)] hover:text-fg"
+          >
+            {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+            {dark ? "Light mode" : "Dark mode"}
+          </button>
+        </div>
+      </aside>
+
+      {/* Main */}
+      <main className="min-w-0 flex-1">
+        <header className="sticky top-0 z-20 border-b border-line bg-app px-8 py-4">
+          <div className="flex items-center gap-1.5 text-xs text-faint">
+            <span>Dashboard</span>
+            <span>/</span>
+            <span className="capitalize text-muted">{active.replace(/-/g, " ")}</span>
+          </div>
+          <div className="mt-1 flex items-end justify-between gap-4">
+            <div>
+              <h1 className="text-xl font-semibold tracking-tight text-fg">Devin Automation</h1>
+              <p className="mt-0.5 text-sm text-muted">
+                Event-driven Devin sessions remediating Superset dependency issues.
+              </p>
             </div>
-          )}
-        </div>
-
-        {/* Issues Table */}
-        <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-8 mb-8 border border-white/20">
-          <div className="flex justify-between items-center mb-6">
-            <h2 className="text-2xl font-bold text-white">Issues</h2>
-            <button
-              onClick={refreshAll}
-              className="px-4 py-2 bg-white/20 hover:bg-white/30 text-white rounded-lg transition"
-            >
-              Refresh
-            </button>
-          </div>
-          {issues.length === 0 ? (
-            <div className="text-center text-white/50 py-8">No issues found</div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="text-left text-white/70 border-b border-white/20">
-                    <th className="pb-4">Title</th>
-                    <th className="pb-4">Type</th>
-                    <th className="pb-4">Dependency</th>
-                    <th className="pb-4">Severity</th>
-                    <th className="pb-4">Status</th>
-                    <th className="pb-4">Created</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {issues.map((issue) => (
-                    <tr key={issue.issue_url} className="border-b border-white/10">
-                      <td className="py-4">
-                        <a href={issue.issue_url} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300">
-                          {issue.title}
-                        </a>
-                      </td>
-                      <td className="py-4 text-white">{issue.finding_type}</td>
-                      <td className="py-4 text-white">{issue.dependency_name || "-"}</td>
-                      <td className="py-4 text-white">{issue.severity || "-"}</td>
-                      <td className="py-4">
-                        <span className="px-3 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-                          {issue.status}
-                        </span>
-                      </td>
-                      <td className="py-4 text-white/70 text-sm">{new Date(issue.created_at).toLocaleString()}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="flex shrink-0 items-center gap-1.5">
+              <code className="rounded-md border border-line bg-[var(--thead)] px-2 py-1 text-xs text-muted">
+                {API_BASE}
+              </code>
+              <button
+                onClick={copyApi}
+                title="Copy API base URL"
+                className="rounded-md border border-line p-1.5 text-muted transition hover:bg-[var(--hover)] hover:text-fg"
+              >
+                {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+              </button>
             </div>
-          )}
-        </div>
-
-        {/* Pull Requests */}
-        <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-8 mb-8 border border-white/20">
-          <div className="flex justify-between items-center mb-6">
-            <h2 className="text-2xl font-bold text-white">Pull Requests</h2>
-            <button
-              onClick={refreshAll}
-              className="px-4 py-2 bg-white/20 hover:bg-white/30 text-white rounded-lg transition"
-            >
-              Refresh
-            </button>
           </div>
-          {pullRequests.length === 0 ? (
-            <div className="text-center text-white/50 py-8">No pull requests found</div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="text-left text-white/70 border-b border-white/20">
-                    <th className="pb-4">PR #</th>
-                    <th className="pb-4">Title</th>
-                    <th className="pb-4">Branch</th>
-                    <th className="pb-4">Status</th>
-                    <th className="pb-4">Merge Status</th>
-                    <th className="pb-4">Reviewers</th>
-                    <th className="pb-4">Changes</th>
-                    <th className="pb-4">Created</th>
-                    <th className="pb-4">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {pullRequests.map((pr) => (
-                    <tr key={pr.number} className="border-b border-white/10">
-                      <td className="py-4 text-white font-mono text-sm">#{pr.number}</td>
-                      <td className="py-4">
-                        <a href={pr.html_url} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300">
-                          {pr.title}
-                        </a>
-                      </td>
-                      <td className="py-4 text-white font-mono text-sm">{pr.head_ref} → {pr.base_ref}</td>
-                      <td className="py-4">
-                        <span className="px-3 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                          {pr.state}
-                        </span>
-                      </td>
-                      <td className="py-4">
-                        <span className={`px-3 py-1 rounded-full text-xs font-medium ${getMergeStatusColor(pr.mergeable, pr.mergeable_state)}`}>
-                          {getMergeStatusText(pr.mergeable, pr.mergeable_state)}
-                        </span>
-                      </td>
-                      <td className="py-4">
-                        <div className="flex flex-wrap gap-1">
-                          {pr.reviewers && pr.reviewers.length > 0 ? (
-                            pr.reviewers.map((reviewer) => (
-                              <span key={reviewer} className="px-2 py-1 bg-purple-100 text-purple-800 rounded text-xs flex items-center gap-1">
-                                {reviewer}
-                                <button
-                                  onClick={() => removeReviewer(pr.number, reviewer)}
-                                  className="ml-1 hover:text-red-600"
-                                  title="Remove reviewer"
-                                >
-                                  ×
-                                </button>
-                              </span>
-                            ))
-                          ) : (
-                            <span className="text-white/50 text-sm">No reviewers</span>
-                          )}
-                        </div>
-                        <div className="mt-2 flex gap-2">
-                          <input
-                            type="text"
-                            placeholder="Add reviewer..."
-                            className="px-2 py-1 bg-white/10 border border-white/20 rounded text-white text-sm w-32 placeholder-white/30"
-                            onKeyPress={(e) => {
-                              if (e.key === 'Enter') {
-                                const target = e.target as HTMLInputElement;
-                                if (target.value.trim()) {
-                                  addReviewer(pr.number, target.value.trim());
-                                  target.value = '';
-                                }
-                              }
-                            }}
-                          />
-                        </div>
-                      </td>
-                      <td className="py-4 text-white text-sm">
-                        <span className="text-green-400">+{pr.additions}</span>
-                        <span className="text-red-400 ml-2">-{pr.deletions}</span>
-                      </td>
-                      <td className="py-4 text-white/70 text-sm">{new Date(pr.created_at).toLocaleString()}</td>
-                      <td className="py-4">
-                        <div className="flex gap-2">
-                          <a
-                            href={pr.html_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="px-3 py-1 bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 text-white text-sm font-medium rounded-lg transition"
-                          >
-                            View PR
-                          </a>
-                          <button
-                            onClick={() => requestDevinReview(pr.number)}
-                            className="px-3 py-1 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white text-sm font-medium rounded-lg transition"
-                            title="Request Devin review"
-                          >
-                            🤖 Review
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+        </header>
+
+        <div className="space-y-8 px-8 py-7">
+          {/* Overview */}
+          <section id="overview" className="scroll-mt-28">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <MetricCard title="Total Sessions" value={metrics?.total_sessions ?? 0} subtitle="All time" icon={<Activity className="h-4 w-4" />} />
+              <MetricCard title="Active" value={metrics?.active_sessions ?? 0} subtitle="Currently running" icon={<Play className="h-4 w-4" />} />
+              <MetricCard title="Autonomy Rate" value={`${(metrics?.autonomy_rate ?? 0).toFixed(1)}%`} subtitle="Finished without a human" icon={<LayoutDashboard className="h-4 w-4" />} />
+              <MetricCard title="Outcome Rate" value={`${(metrics?.outcome_rate ?? 0).toFixed(1)}%`} subtitle="Successful completions" icon={<GitPullRequest className="h-4 w-4" />} />
+              <MetricCard title="Avg Cycle Time" value={`${(metrics?.avg_cycle_time ?? 0).toFixed(0)}s`} subtitle="Per session" icon={<RefreshCw className="h-4 w-4" />} />
+              <MetricCard title="ACU Used" value={(metrics?.total_acu_used ?? 0).toFixed(2)} subtitle="Compute units consumed" icon={<AlertTriangle className="h-4 w-4" />} />
             </div>
-          )}
-        </div>
+          </section>
 
-        {/* Start New Run */}
-        <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-8 border border-white/20">
-          <h2 className="text-2xl font-bold text-white mb-6">Start New Run</h2>
-          <div className="flex gap-4">
-            <button
-              onClick={() => startRun(false)}
-              className="px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white font-medium rounded-lg transition"
-            >
-              Scan & Process
-            </button>
-            <button
-              onClick={() => startRun(true)}
-              className="px-6 py-3 bg-white/20 hover:bg-white/30 text-white font-medium rounded-lg transition"
-            >
-              Scan Only
-            </button>
-          </div>
+          {/* Sessions */}
+          <Panel id="sessions" title="Sessions" count={sessions.length} onRefresh={refreshAll}>
+            {sessions.length === 0 ? (
+              <Empty>No sessions yet.</Empty>
+            ) : (
+              <Table head={["Session", "Status", "Issue", "Branch", "ACU", "Created"]}>
+                {sessions.map((s) => (
+                  <tr key={s.session_id} className="border-t border-line transition hover:bg-[var(--hover)]">
+                    <td className={`${TD} ${MONO}`}>{s.session_id.substring(0, 8)}</td>
+                    <td className={TD}><span className={statusBadge(s.status)}>{s.status}</span></td>
+                    <td className={TD}><a href={s.issue_url} target="_blank" rel="noopener noreferrer" className={LINK}>Issue</a></td>
+                    <td className={`${TD} ${MONO}`}>{s.branch || "—"}</td>
+                    <td className={`${TD} tabular-nums`}>{s.acu_used.toFixed(2)}</td>
+                    <td className={`${TD} text-muted`}>{new Date(s.created_at).toLocaleString()}</td>
+                  </tr>
+                ))}
+              </Table>
+            )}
+          </Panel>
+
+          {/* Issues */}
+          <Panel id="issues" title="Issues" count={issues.length} onRefresh={refreshAll}>
+            {issues.length === 0 ? (
+              <Empty>No issues yet.</Empty>
+            ) : (
+              <Table head={["Title", "Type", "Dependency", "Severity", "Status", "Created"]}>
+                {issues.map((i) => (
+                  <tr key={i.issue_url} className="border-t border-line transition hover:bg-[var(--hover)]">
+                    <td className={TD}><a href={i.issue_url} target="_blank" rel="noopener noreferrer" className={LINK}>{i.title}</a></td>
+                    <td className={`${TD} text-muted`}>{i.finding_type}</td>
+                    <td className={`${TD} ${MONO}`}>{i.dependency_name || "—"}</td>
+                    <td className={TD}>{i.severity ? <span className={severityBadge(i.severity)}>{i.severity}</span> : "—"}</td>
+                    <td className={TD}><span className={statusBadge(i.status)}>{i.status}</span></td>
+                    <td className={`${TD} text-muted`}>{new Date(i.created_at).toLocaleString()}</td>
+                  </tr>
+                ))}
+              </Table>
+            )}
+          </Panel>
+
+          {/* Pull Requests */}
+          <Panel id="pull-requests" title="Pull Requests" count={pullRequests.length} onRefresh={refreshAll}>
+            {pullRequests.length === 0 ? (
+              <Empty>No pull requests yet.</Empty>
+            ) : (
+              <Table head={["PR", "Title", "Branch", "Merge", "Changes", ""]}>
+                {pullRequests.map((pr) => (
+                  <tr key={pr.number} className="border-t border-line transition hover:bg-[var(--hover)]">
+                    <td className={`${TD} ${MONO}`}>#{pr.number}</td>
+                    <td className={TD}><a href={pr.html_url} target="_blank" rel="noopener noreferrer" className={LINK}>{pr.title}</a></td>
+                    <td className={`${TD} ${MONO}`}>{pr.head_ref} → {pr.base_ref}</td>
+                    <td className={TD}><span className={`${BADGE} bg-[var(--neutral-bg)] text-[var(--neutral-fg)]`}>{mergeText(pr.mergeable, pr.mergeable_state)}</span></td>
+                    <td className={`${TD} tabular-nums`}>
+                      <span className="text-[var(--ok-fg)]">+{pr.additions}</span>
+                      <span className="ml-2 text-[var(--err-fg)]">−{pr.deletions}</span>
+                    </td>
+                    <td className={`${TD} text-right`}>
+                      <a href={pr.html_url} target="_blank" rel="noopener noreferrer" className="rounded-md border border-line px-2.5 py-1 text-xs font-medium text-fg transition hover:bg-[var(--hover)]">View</a>
+                    </td>
+                  </tr>
+                ))}
+              </Table>
+            )}
+          </Panel>
+
+          {/* Start a Run */}
+          <section id="run" className="scroll-mt-28">
+            <div className="card rounded-xl p-6">
+              <h2 className="text-sm font-semibold text-fg">Start a Run</h2>
+              <p className="mt-1 text-sm text-muted">Scan the Superset fork for dependency issues and optionally dispatch Devin sessions.</p>
+              <div className="mt-4 flex flex-wrap gap-2.5">
+                <button onClick={() => startRun(false)} className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-[var(--accent-fg)] transition hover:opacity-90">
+                  Scan &amp; process
+                </button>
+                <button onClick={() => startRun(true)} className="rounded-lg border border-line px-4 py-2 text-sm font-medium text-fg transition hover:bg-[var(--hover)]">
+                  Scan only
+                </button>
+              </div>
+            </div>
+          </section>
+
+          <footer className="pb-2 text-center text-xs text-faint">Auto-refreshes every 30s.</footer>
         </div>
-      </div>
+      </main>
     </div>
   );
 }
 
-function MetricCard({ title, value, subtitle, icon, color }: any) {
+function Panel({
+  id,
+  title,
+  count,
+  onRefresh,
+  children,
+}: {
+  id: string;
+  title: string;
+  count?: number;
+  onRefresh?: () => void;
+  children: ReactNode;
+}) {
   return (
-    <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-6 border border-white/20 hover:bg-white/15 transition">
-      <div className="flex items-center justify-between mb-4">
-        <div className={`p-3 rounded-lg bg-gradient-to-br ${color}`}>{icon}</div>
+    <section id={id} className="scroll-mt-28">
+      <div className="card overflow-hidden rounded-xl">
+        <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
+          <div className="flex items-center gap-2">
+            <h2 className="text-sm font-semibold text-fg">{title}</h2>
+            {count != null && (
+              <span className="rounded-full bg-[var(--neutral-bg)] px-2 py-0.5 text-xs font-medium text-[var(--neutral-fg)] tabular-nums">
+                {count}
+              </span>
+            )}
+          </div>
+          {onRefresh && (
+            <button
+              onClick={onRefresh}
+              className="inline-flex items-center gap-1.5 rounded-md border border-line px-2.5 py-1.5 text-xs font-medium text-muted transition hover:bg-[var(--hover)] hover:text-fg"
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+              Refresh
+            </button>
+          )}
+        </div>
+        {children}
       </div>
-      <div className="text-3xl font-bold text-white mb-2">{value}</div>
-      <div className="text-white/70 text-sm">{title}</div>
-      <div className="text-white/50 text-xs mt-1">{subtitle}</div>
+    </section>
+  );
+}
+
+function Table({ head, children }: { head: string[]; children: ReactNode }) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead className="bg-[var(--thead)]">
+          <tr>
+            {head.map((h, idx) => (
+              <th key={idx} className={`${TH} ${idx === head.length - 1 ? "text-right" : ""}`}>
+                {h}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>{children}</tbody>
+      </table>
+    </div>
+  );
+}
+
+function Empty({ children }: { children: ReactNode }) {
+  return <div className="px-5 py-12 text-center text-sm text-faint">{children}</div>;
+}
+
+function MetricCard({
+  title,
+  value,
+  subtitle,
+  icon,
+}: {
+  title: string;
+  value: ReactNode;
+  subtitle: string;
+  icon: ReactNode;
+}) {
+  return (
+    <div className="card rounded-xl p-5">
+      <div className="mb-3 flex items-center justify-between">
+        <span className="text-xs font-medium uppercase tracking-wider text-faint">{title}</span>
+        <span className="text-faint">{icon}</span>
+      </div>
+      <div className="text-2xl font-semibold tabular-nums text-fg">{value}</div>
+      <div className="mt-1 text-xs text-faint">{subtitle}</div>
     </div>
   );
 }

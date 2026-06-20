@@ -83,7 +83,7 @@ docker-compose down
 
 ### Web Dashboard
 
-Access the web dashboard at `http://localhost:3000` (TODO: add vercel deployment link)
+Access the live dashboard at **https://frontend-five-lyart-14.vercel.app** — or run it locally at `http://localhost:3000`.
 
 ### API Endpoints
 

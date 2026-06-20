@@ -64,18 +64,18 @@ async def create_run(run: RunCreate, background_tasks: BackgroundTasks):
     async def execute_run():
         try:
             if run.repo_path:
-                # Scan and create issues
+                # Scan a local checkout and create issues for findings.
                 issue_urls = await orchestrator.scan_and_create_issues(run.repo_path)
                 logger.info("Scan completed", run_id=run_id, issues_created=len(issue_urls))
-                
-                if not run.scan_only:
-                    # Process pending issues
-                    session_ids = await orchestrator.process_pending_issues(run.repo_path)
-                    logger.info("Processing completed", run_id=run_id, sessions=len(session_ids))
-            else:
-                # Just process pending issues
-                session_ids = await orchestrator.process_pending_issues()
+
+            # scan_only must be honored regardless of repo_path. The old code only
+            # checked it inside the repo_path branch, so "Scan only" with no checkout
+            # fell through to dispatching a Devin session for EVERY pending issue.
+            if not run.scan_only:
+                session_ids = await orchestrator.process_pending_issues(run.repo_path)
                 logger.info("Processing completed", run_id=run_id, sessions=len(session_ids))
+            elif not run.repo_path:
+                logger.info("Scan-only run with no repo_path: nothing to scan or process", run_id=run_id)
         except Exception as e:
             logger.error("Run failed", run_id=run_id, error=str(e))
     
@@ -118,8 +118,8 @@ async def get_session(session_id: str):
 
 @router.get("/issues", response_model=List[IssueResponse])
 async def get_issues():
-    """Get all issues."""
-    issues = db.get_pending_issues()
+    """Get all issues (any status) so processed outcomes stay visible."""
+    issues = db.get_all_issues()
     return [IssueResponse(**i) for i in issues]
 
 

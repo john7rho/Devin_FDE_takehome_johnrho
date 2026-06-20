@@ -81,8 +81,14 @@ class Orchestrator:
                     pr_url=structured_output.pr_url
                 )
                 
-                # Update issue status
-                db.update_issue(issue_url, session_id=session_id, status=IssueStatus.COMPLETED.value)
+                # Only "completed" if a PR was actually opened and no human action is
+                # still required; otherwise the issue is blocked on a human (push access,
+                # review, etc.). The session status carries the finer-grained signal.
+                if structured_output.pr_url and not structured_output.needs_human:
+                    issue_status = IssueStatus.COMPLETED
+                else:
+                    issue_status = IssueStatus.IN_PROGRESS
+                db.update_issue(issue_url, session_id=session_id, status=issue_status.value)
                 
                 session_logger.info(
                     "Structured output received",

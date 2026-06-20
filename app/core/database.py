@@ -160,10 +160,17 @@ class Database:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT * FROM issues 
-                WHERE status = 'pending' 
+                SELECT * FROM issues
+                WHERE status = 'pending'
                 ORDER BY created_at ASC
             """)
+            return [dict(row) for row in cursor.fetchall()]
+
+    def get_all_issues(self) -> list[dict[str, Any]]:
+        """All issues regardless of status, newest first (for the dashboard panel)."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM issues ORDER BY created_at DESC")
             return [dict(row) for row in cursor.fetchall()]
     
     def record_metric(self, metric_name: str, metric_value: float, metadata: Optional[dict[str, Any]] = None) -> None:

@@ -1,11 +1,13 @@
 import logging
 from pathlib import Path
+from typing import Optional
+
 import structlog
 
 from app.core.config import settings
 
 
-def setup_logging():
+def setup_logging() -> None:
     """Configure structured logging with session_id tagging."""
     Path(settings.log_path).mkdir(parents=True, exist_ok=True)
     
@@ -25,7 +27,7 @@ def setup_logging():
     )
 
 
-def get_logger(session_id: str = None, **kwargs) -> structlog.BoundLogger:
+def get_logger(session_id: Optional[str] = None, **kwargs) -> structlog.BoundLogger:
     """Get a logger with optional session_id context."""
     log = structlog.get_logger()
     if session_id:
@@ -42,19 +44,19 @@ class SessionLogger:
         self.session_id = session_id
         self.logger = get_logger(session_id=session_id)
     
-    def info(self, msg: str, **kwargs):
+    def info(self, msg: str, **kwargs) -> None:
         self.logger.info(msg, **kwargs)
     
-    def error(self, msg: str, **kwargs):
+    def error(self, msg: str, **kwargs) -> None:
         self.logger.error(msg, **kwargs)
     
-    def warning(self, msg: str, **kwargs):
+    def warning(self, msg: str, **kwargs) -> None:
         self.logger.warning(msg, **kwargs)
     
-    def debug(self, msg: str, **kwargs):
+    def debug(self, msg: str, **kwargs) -> None:
         self.logger.debug(msg, **kwargs)
     
-    def bind(self, **kwargs):
+    def bind(self, **kwargs) -> "SessionLogger":
         """Bind additional context to the logger."""
         self.logger = self.logger.bind(**kwargs)
         return self

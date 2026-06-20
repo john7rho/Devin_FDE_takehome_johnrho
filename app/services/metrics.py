@@ -1,4 +1,4 @@
-from typing import Dict, List
+from typing import Any, Dict, List
 from datetime import datetime, timedelta
 
 from app.core.database import db
@@ -67,7 +67,7 @@ class MetricsCollector:
         total_acu_used = sum(s.get("acu_used", 0) for s in sessions)
         
         # Failure breakdown
-        failure_breakdown = {}
+        failure_breakdown: Dict[str, int] = {}
         for s in sessions:
             if s["status"] in SessionStatus.failure_values():
                 status = s["status"]
@@ -115,7 +115,7 @@ class MetricsCollector:
                 metadata={"status": status}
             )
     
-    def get_metrics_history(self, metric_name: str, hours: int = 24) -> List[Dict]:
+    def get_metrics_history(self, metric_name: str, hours: int = 24) -> List[Dict[str, Any]]:
         """Get historical metrics for a specific metric name."""
         cutoff = datetime.now() - timedelta(hours=hours)
         metrics = db.get_metrics(metric_name, limit=1000)
@@ -128,7 +128,7 @@ class MetricsCollector:
         
         return filtered
     
-    def get_session_logs(self, session_id: str) -> List[Dict]:
+    def get_session_logs(self, session_id: str) -> List[Dict[str, Any]]:
         """Get all logs for a specific session."""
         # This would read from the log file
         # For now, return session data from database

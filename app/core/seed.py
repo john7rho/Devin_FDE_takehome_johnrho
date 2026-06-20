@@ -69,5 +69,36 @@ def seed_demo_data(force: bool = False) -> dict:
                         dependency_name=dep, vulnerability_id=cve, severity=sev)
 
     summary = MetricsCollector().calculate_metrics()
+    _seed_metric_history(summary)
     return {"status": "seeded", "processed": len(PROCESSED), "pending": len(PENDING),
             "autonomy_rate": summary.autonomy_rate, "total_acu": summary.total_acu_used}
+
+
+def _seed_metric_history(summary) -> None:
+    """Insert a synthetic per-metric time series so the dashboard charts have data
+    to plot (ramps up to the current value with a small deterministic wiggle)."""
+    from datetime import datetime, timedelta
+
+    series = {
+        "total_sessions": summary.total_sessions,
+        "active_sessions": max(summary.active_sessions, 1),
+        "autonomy_rate": summary.autonomy_rate,
+        "outcome_rate": summary.outcome_rate,
+        "avg_cycle_time": summary.avg_cycle_time or 45.0,
+        "total_acu_used": summary.total_acu_used,
+    }
+    now = datetime.now()
+    points = 12
+    with db.get_connection() as conn:
+        cur = conn.cursor()
+        for name, target in series.items():
+            for i in range(points):
+                ts = (now - timedelta(hours=points - 1 - i)).isoformat()
+                frac = 0.5 + 0.5 * (i / (points - 1))         # ramp toward current
+                wig = 1 + (((i * 37) % 11) - 5) / 100.0        # deterministic ±5%
+                val = round(float(target) * frac * wig, 2)
+                cur.execute(
+                    "INSERT INTO metrics (metric_name, metric_value, timestamp) VALUES (?, ?, ?)",
+                    (name, val, ts),
+                )
+        conn.commit()

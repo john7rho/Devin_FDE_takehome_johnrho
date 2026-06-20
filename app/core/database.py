@@ -1,18 +1,18 @@
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Optional
+from typing import Any, Iterator, Optional
 import json
 
 from app.core.config import settings
 
 
 class Database:
-    def __init__(self, db_path: str = None):
+    def __init__(self, db_path: Optional[str] = None):
         self.db_path = db_path or settings.database_path
         self._ensure_database_exists()
     
-    def _ensure_database_exists(self):
+    def _ensure_database_exists(self) -> None:
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
@@ -68,7 +68,7 @@ class Database:
         conn.close()
     
     @contextmanager
-    def get_connection(self):
+    def get_connection(self) -> Iterator[sqlite3.Connection]:
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         try:
@@ -77,7 +77,7 @@ class Database:
             conn.close()
     
     def insert_session(self, session_id: str, issue_url: str, repo_url: str, 
-                      branch: str = None, status: str = "created") -> None:
+                      branch: Optional[str] = None, status: str = "created") -> None:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
@@ -87,7 +87,7 @@ class Database:
             """, (session_id, issue_url, repo_url, branch, status))
             conn.commit()
     
-    def update_session(self, session_id: str, **kwargs) -> None:
+    def update_session(self, session_id: str, **kwargs: Any) -> None:
         if not kwargs:
             return
         
@@ -103,7 +103,7 @@ class Database:
             """, values)
             conn.commit()
     
-    def get_session(self, session_id: str) -> Optional[dict]:
+    def get_session(self, session_id: str) -> Optional[dict[str, Any]]:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT * FROM sessions WHERE session_id = ?", (session_id,))
@@ -112,7 +112,7 @@ class Database:
                 return dict(row)
             return None
     
-    def get_all_sessions(self, status: str = None) -> list:
+    def get_all_sessions(self, status: Optional[str] = None) -> list[dict[str, Any]]:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             if status:
@@ -122,8 +122,8 @@ class Database:
             return [dict(row) for row in cursor.fetchall()]
     
     def insert_issue(self, issue_url: str, title: str, finding_type: str,
-                    dependency_name: str = None, vulnerability_id: str = None,
-                    severity: str = None) -> int:
+                    dependency_name: Optional[str] = None, vulnerability_id: Optional[str] = None,
+                    severity: Optional[str] = None) -> int:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
@@ -132,9 +132,9 @@ class Database:
                 VALUES (?, ?, ?, ?, ?, ?)
             """, (issue_url, title, finding_type, dependency_name, vulnerability_id, severity))
             conn.commit()
-            return cursor.lastrowid
+            return int(cursor.lastrowid or 0)
     
-    def update_issue(self, issue_url: str, session_id: str = None, status: str = None) -> None:
+    def update_issue(self, issue_url: str, session_id: Optional[str] = None, status: Optional[str] = None) -> None:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             updates = []
@@ -156,7 +156,7 @@ class Database:
                 """, params)
                 conn.commit()
     
-    def get_pending_issues(self) -> list:
+    def get_pending_issues(self) -> list[dict[str, Any]]:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
@@ -166,7 +166,7 @@ class Database:
             """)
             return [dict(row) for row in cursor.fetchall()]
     
-    def record_metric(self, metric_name: str, metric_value: float, metadata: dict = None) -> None:
+    def record_metric(self, metric_name: str, metric_value: float, metadata: Optional[dict[str, Any]] = None) -> None:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
@@ -175,7 +175,7 @@ class Database:
             """, (metric_name, metric_value, json.dumps(metadata) if metadata else None))
             conn.commit()
     
-    def get_metrics(self, metric_name: str = None, limit: int = 100) -> list:
+    def get_metrics(self, metric_name: Optional[str] = None, limit: int = 100) -> list[dict[str, Any]]:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             if metric_name:

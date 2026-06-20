@@ -1,5 +1,6 @@
-from fastapi import APIRouter, HTTPException, BackgroundTasks
 from typing import List, Optional
+
+from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 
 from app.core.database import db
@@ -7,6 +8,8 @@ from app.models.schemas import SessionResponse, IssueResponse, MetricsSummary
 from app.services.orchestrator import Orchestrator
 from app.services.metrics import MetricsCollector
 from app.utils.logger import get_logger
+from app.core.config import settings
+from app.core.seed import seed_demo_data
 
 router = APIRouter()
 logger = get_logger()
@@ -102,6 +105,15 @@ async def get_metrics():
     return collector.calculate_metrics()
 
 
+@router.post("/seed")
+async def seed_demo():
+    """Populate the database with demo data so reviewers can validate the dashboard
+    end-to-end from zero. Idempotent — no-ops if sessions already exist."""
+    if not settings.demo_mode:
+        raise HTTPException(status_code=403, detail="Demo mode is disabled")
+    return seed_demo_data()
+
+
 @router.get("/metrics/history/{metric_name}")
 async def get_metrics_history(metric_name: str, hours: int = 24):
     """Get historical metrics for a specific metric."""
@@ -145,7 +157,7 @@ async def get_pull_requests():
                 "additions": pr.additions,
                 "deletions": pr.deletions,
                 "commits": pr.commits,
-                "reviewers": [assignee.login for assignee in pr.assignees],
+                "reviewers": [reviewer.login for reviewer in pr.requested_reviewers],
             })
         
         return pr_list
@@ -209,7 +221,6 @@ async def request_devin_review(pr_number: int):
     """Request a Devin review for a pull request."""
     from app.services.github_client import GitHubClient
     from app.services.devin_client import DevinClient
-    from app.core.database import db
     
     try:
         github_client = GitHubClient()
@@ -218,6 +229,9 @@ async def request_devin_review(pr_number: int):
         
         # Create a Devin session for reviewing the PR
         devin_client = DevinClient()
+        repo_url = pr.head.repo.clone_url or settings.github_fork_url
+        if not repo_url:
+            raise ValueError("Unable to determine PR repository URL")
         
         # Build review instruction
         instruction = f"""
@@ -240,27 +254,36 @@ Focus on the actual code changes in this PR, not general repository issues.
 """
         
         # Create Devin session
-        session = await devin_client.create_session(instruction)
+        try:
+            devin_session_id = await devin_client.create_session(
+                instructions=instruction,
+                repo_url=repo_url,
+                branch=pr.head.ref,
+                max_acu_limit=settings.max_acu_limit,
+            )
+        finally:
+            await devin_client.close()
         
         # Store session in database
-        db.create_session(
-            session_id=session["session_id"],
+        db.insert_session(
+            session_id=devin_session_id,
             issue_url=pr.html_url,
+            repo_url=repo_url,
             branch=pr.head.ref,
-            instruction=instruction,
+            status="running",
         )
         
         # Add comment to PR indicating review started
         github_client.add_comment_to_pr(
             pr_number,
-            f"🤖 Devin review started. Session ID: {session['session_id']}\n\nReview is in progress..."
+            f"Devin review started. Session ID: {devin_session_id}\n\nReview is in progress..."
         )
         
-        logger.info(f"Started Devin review for PR #{pr_number}", session_id=session["session_id"])
+        logger.info(f"Started Devin review for PR #{pr_number}", session_id=devin_session_id)
         
         return {
             "message": f"Devin review started for PR #{pr_number}",
-            "session_id": session["session_id"],
+            "session_id": devin_session_id,
         }
         
     except Exception as e:

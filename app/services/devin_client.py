@@ -1,6 +1,7 @@
-import httpx
-from typing import Optional, Dict, Any
 import json
+from typing import Any, Dict, Optional
+
+import httpx
 
 from app.core.config import settings
 from app.models.schemas import SessionStatus, DevinStructuredOutput
@@ -24,12 +25,12 @@ class DevinClient:
         self,
         instructions: str,
         repo_url: str,
-        branch: str = None,
-        max_acu_limit: int = None
+        branch: Optional[str] = None,
+        max_acu_limit: Optional[int] = None
     ) -> str:
         """Create a new Devin session and return session_id."""
         try:
-            payload = {
+            payload: Dict[str, Any] = {
                 "instructions": instructions,
                 "repo_url": repo_url,
                 "max_acu_limit": max_acu_limit or settings.max_acu_limit
@@ -44,6 +45,8 @@ class DevinClient:
             
             data = response.json()
             session_id = data.get("session_id")
+            if not isinstance(session_id, str):
+                raise ValueError("Devin API response did not include a session_id")
             
             self.logger.info("Devin session created", session_id=session_id)
             return session_id
@@ -80,7 +83,7 @@ class DevinClient:
         elapsed = 0
         while elapsed < timeout:
             status_data = await self.get_session_status(session_id)
-            status = status_data.get("status")
+            status = str(status_data.get("status", ""))
             
             if status in SessionStatus.terminal_values():
                 self.logger.info("Session completed", session_id=session_id, status=status)

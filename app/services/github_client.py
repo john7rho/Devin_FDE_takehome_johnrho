@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 from github import Github
 from github.Repository import Repository
 from github.Issue import Issue
@@ -32,7 +32,7 @@ class GitHubClient:
         self,
         title: str,
         body: str,
-        labels: List[str] = None
+        labels: Optional[List[str]] = None
     ) -> Issue:
         """Create a GitHub issue on the fork."""
         try:
@@ -99,7 +99,7 @@ class GitHubClient:
         body: str,
         head: str,
         base: str = "main",
-        labels: List[str] = None
+        labels: Optional[List[str]] = None
     ) -> PullRequest:
         """Create a pull request."""
         try:
@@ -146,7 +146,7 @@ class GitHubClient:
             self.logger.error("Failed to close issue", issue_number=issue_number, error=str(e))
             raise
     
-    def get_open_issues(self, label: str = None) -> List[Issue]:
+    def get_open_issues(self, label: Optional[str] = None) -> List[Issue]:
         """Get all open issues, optionally filtered by label."""
         try:
             repo = self.get_repo()
@@ -160,23 +160,23 @@ class GitHubClient:
             self.logger.error("Failed to get open issues", error=str(e))
             raise
 
-    def add_reviewer_to_pr(self, pr_number: int, reviewer: str):
+    def add_reviewer_to_pr(self, pr_number: int, reviewer: str) -> None:
         """Add a reviewer to a pull request."""
         try:
             repo = self.get_repo()
             pr = repo.get_pull(pr_number)
-            pr.add_to_assignees(reviewer)
+            pr.create_review_request(reviewers=[reviewer])
             self.logger.info(f"Added reviewer {reviewer} to PR #{pr_number}")
         except Exception as e:
             self.logger.error("Failed to add reviewer", pr_number=pr_number, reviewer=reviewer, error=str(e))
             raise
 
-    def remove_reviewer_from_pr(self, pr_number: int, reviewer: str):
+    def remove_reviewer_from_pr(self, pr_number: int, reviewer: str) -> None:
         """Remove a reviewer from a pull request."""
         try:
             repo = self.get_repo()
             pr = repo.get_pull(pr_number)
-            pr.remove_from_assignees(reviewer)
+            pr.delete_review_request(reviewers=[reviewer])
             self.logger.info(f"Removed reviewer {reviewer} from PR #{pr_number}")
         except Exception as e:
             self.logger.error("Failed to remove reviewer", pr_number=pr_number, reviewer=reviewer, error=str(e))
@@ -187,7 +187,7 @@ class GitHubClient:
         try:
             repo = self.get_repo()
             pr = repo.get_pull(pr_number)
-            return [assignee.login for assignee in pr.assignees]
+            return [reviewer.login for reviewer in pr.requested_reviewers]
         except Exception as e:
             self.logger.error("Failed to fetch reviewers", pr_number=pr_number, error=str(e))
             raise
@@ -197,7 +197,7 @@ class GitHubClient:
         try:
             repo = self.get_repo()
             pr = repo.get_pull(pr_number)
-            pr.create_comment(comment)
+            pr.create_issue_comment(comment)
             self.logger.info("Comment added to PR", pr_number=pr_number)
         except Exception as e:
             self.logger.error("Failed to add comment to PR", pr_number=pr_number, error=str(e))

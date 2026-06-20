@@ -16,7 +16,7 @@ class Orchestrator:
     
     def __init__(self):
         self.max_concurrent = settings.max_concurrent_sessions
-        self.active_sessions: set = set()
+        self.active_sessions: set[str] = set()
         self.github_client = GitHubClient()
         self.logger = get_logger()
     
@@ -24,10 +24,12 @@ class Orchestrator:
         """Process a single issue by creating a Devin session."""
         session_id = str(uuid.uuid4())
         session_logger = SessionLogger(session_id)
+        devin_client: Optional[DevinClient] = None
         
         try:
             # Generate branch name
             branch_name = f"{settings.branch_prefix}/{session_id[:8]}"
+            self.active_sessions.add(session_id)
             
             # Insert session into database
             db.insert_session(
@@ -59,7 +61,7 @@ class Orchestrator:
             result = await devin_client.wait_for_completion(devin_session_id)
             
             # Parse status
-            status = self._map_status(result.get("status"))
+            status = self._map_status(str(result.get("status", "")))
             db.update_session(
                 session_id,
                 status=status.value,
@@ -92,8 +94,6 @@ class Orchestrator:
                 db.update_issue(issue_url, session_id=session_id, status=IssueStatus.FAILED.value)
                 session_logger.warning("No structured output received")
             
-            await devin_client.close()
-            
             return session_id
             
         except Exception as e:
@@ -102,9 +102,11 @@ class Orchestrator:
             db.update_issue(issue_url, session_id=session_id, status=IssueStatus.FAILED.value)
             raise
         finally:
+            if devin_client:
+                await devin_client.close()
             self.active_sessions.discard(session_id)
     
-    async def process_pending_issues(self, repo_path: str = None) -> List[str]:
+    async def process_pending_issues(self, repo_path: Optional[str] = None) -> List[str]:
         """Process all pending issues with concurrency control."""
         self.logger.info("Starting to process pending issues")
         
@@ -117,26 +119,24 @@ class Orchestrator:
         
         self.logger.info(f"Found {len(pending_issues)} pending issues")
         
-        # Process issues with concurrency limit
-        session_ids = []
-        tasks = []
-        
-        for issue in pending_issues:
-            # Wait if we've reached the concurrency limit
-            while len(self.active_sessions) >= self.max_concurrent:
-                await asyncio.sleep(1)
-            
-            self.active_sessions.add(issue["issue_url"])
-            task = asyncio.create_task(
-                self.process_issue(issue["issue_url"], settings.github_fork_url)
-            )
-            tasks.append(task)
+        repo_url = settings.github_fork_url or repo_path
+        if not repo_url:
+            raise ValueError("A GitHub fork URL is required to process issues")
+
+        semaphore = asyncio.Semaphore(self.max_concurrent)
+
+        async def process_with_limit(issue: dict) -> str:
+            async with semaphore:
+                return await self.process_issue(issue["issue_url"], repo_url)
+
+        tasks = [asyncio.create_task(process_with_limit(issue)) for issue in pending_issues]
         
         # Wait for all tasks to complete
         results = await asyncio.gather(*tasks, return_exceptions=True)
         
+        session_ids: List[str] = []
         for result in results:
-            if isinstance(result, Exception):
+            if isinstance(result, BaseException):
                 self.logger.error("Task failed", error=str(result))
             else:
                 session_ids.append(result)

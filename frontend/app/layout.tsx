@@ -10,7 +10,7 @@ const roboto = Roboto({
 });
 
 export const metadata: Metadata = {
-  title: "Devin Automation Dashboard",
+  title: "John Rho - Devin Demo",
   description: "Event-driven Devin automation for Superset issue remediation",
 };
 

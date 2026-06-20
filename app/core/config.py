@@ -1,13 +1,16 @@
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional
 
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", case_sensitive=False)
+
     # Devin API Configuration
     devin_api_key: str
     devin_api_url: str = "https://api.devin.ai"
     max_acu_limit: int = 10
     max_concurrent_sessions: int = 3
+    demo_mode: bool = True  # expose POST /seed so reviewers can populate demo data from zero
     
     # GitHub Configuration
     github_token: str
@@ -30,9 +33,4 @@ class Settings(BaseSettings):
     # Branch Naming Convention
     branch_prefix: str = "fix/dependency"
     
-    class Config:
-        env_file = ".env"
-        case_sensitive = False
-
-
-settings = Settings()
+settings = Settings()  # type: ignore[call-arg]

@@ -71,10 +71,6 @@ type Point = { t: string; v: number };
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
 const SUPERSET_URL = process.env.NEXT_PUBLIC_SUPERSET_URL || "";
-const SUPERSET_PROMPT = `Spin up Apache Superset with example data in your sandbox so I can verify it works end-to-end:
-1) git clone https://github.com/john7rho/superset && cd superset
-2) Boot a single container with examples: docker run -d -p 8088:8088 --name superset apache/superset:4.1.1 ; then inside it run: superset db upgrade && superset fab create-admin --username admin --password admin --firstname a --lastname b --email a@b.com && superset load_examples && superset init && superset run -h 0.0.0.0 -p 8088
-3) Expose port 8088 and confirm the Superset UI loads with the example dashboards (login admin/admin).`;
 
 const NAV: { id: string; label: string; icon: ComponentType<{ className?: string }> }[] = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
@@ -211,6 +207,23 @@ export default function Dashboard() {
 
   const devinLink = (prompt: string) =>
     `https://app.devin.ai/?prompt=${encodeURIComponent(prompt)}`;
+
+  const startSupersetPreview = async () => {
+    if (!confirm("This starts a real Devin session (uses ACUs) that boots Superset in its sandbox. Continue?")) return;
+    try {
+      const res = await fetch(`${API_BASE}/superset-preview`, { method: "POST" });
+      if (!res.ok) {
+        alert("Could not start — is DEVIN_API_KEY configured on the backend?");
+        return;
+      }
+      const data = await res.json();
+      if (data.session_url) window.open(data.session_url, "_blank", "noopener");
+      else alert(`Devin session created: ${data.session_id}`);
+    } catch (error) {
+      console.error("Failed to start Superset preview:", error);
+      alert("Failed to start Superset preview");
+    }
+  };
 
   useEffect(() => {
     setDark(document.documentElement.classList.contains("dark"));
@@ -451,11 +464,11 @@ export default function Dashboard() {
 # then open http://localhost:8088   (admin / admin)`}</pre>
                   </div>
                   <div>
-                    <div className="text-xs font-medium uppercase tracking-wider text-faint">Option B · spin it up in a Devin sandbox</div>
-                    <p className="mt-1 text-sm text-muted">Devin boots Superset and loads example data in its own sandbox — no local setup.</p>
-                    <a href={devinLink(SUPERSET_PROMPT)} target="_blank" rel="noopener noreferrer" className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-[var(--accent)] px-4 py-2 text-sm font-medium text-[var(--accent)] transition hover:bg-[var(--accent-soft-bg)]">
+                    <div className="text-xs font-medium uppercase tracking-wider text-faint">Option B · spin it up in a Devin session</div>
+                    <p className="mt-1 text-sm text-muted">Devin boots Superset + example data in its sandbox; opens the Devin session to watch or collaborate (needs a Devin seat). Uses ACUs.</p>
+                    <button onClick={startSupersetPreview} className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-[var(--accent)] px-4 py-2 text-sm font-medium text-[var(--accent)] transition hover:bg-[var(--accent-soft-bg)]">
                       <ExternalLink className="h-4 w-4" /> Spin up Superset in Devin
-                    </a>
+                    </button>
                   </div>
                 </div>
               )}

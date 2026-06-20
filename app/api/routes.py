@@ -9,9 +9,35 @@ from app.services.orchestrator import Orchestrator
 from app.services.metrics import MetricsCollector
 from app.utils.logger import get_logger
 from app.core.config import settings
+from app.services import superset_preview
 
 router = APIRouter()
 logger = get_logger()
+
+
+@router.post("/superset-preview")
+async def start_superset_preview():
+    """Create a Devin session that boots Superset + example data and exposes it
+    publicly (Devin expose_port -> *.devinapps.com). Returns the session id +
+    Devin session URL; poll GET /superset-preview/{id} for the public preview URL.
+    NOTE: starts a REAL Devin session and consumes ACUs."""
+    if not superset_preview.is_configured():
+        raise HTTPException(status_code=503, detail="DEVIN_API_KEY not configured")
+    try:
+        return superset_preview.create_preview_session()
+    except Exception as e:
+        logger.error("superset-preview create failed", error=str(e))
+        raise HTTPException(status_code=502, detail="Failed to create Devin session")
+
+
+@router.get("/superset-preview/{session_id}")
+async def poll_superset_preview(session_id: str):
+    """Poll the Devin session for the public Superset URL (devinapps.com)."""
+    try:
+        return superset_preview.get_preview_url(session_id)
+    except Exception as e:
+        logger.error("superset-preview poll failed", error=str(e))
+        raise HTTPException(status_code=502, detail="Failed to poll Devin session")
 
 
 class RunCreate(BaseModel):

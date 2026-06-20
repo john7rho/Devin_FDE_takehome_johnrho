@@ -1,6 +1,3 @@
-# OS
-.DS_Store
-
 # Python
 __pycache__/
 *.py[cod]
@@ -21,7 +18,6 @@ build/
 # Env / secrets
 .env
 .env.*
-!.env.example
 
 # Editor
 .idea/
@@ -32,3 +28,19 @@ build/
 data/
 logs/
 *.db
+
+# Git
+.git/
+.gitignore
+
+# Frontend build
+frontend/.next/
+frontend/node_modules/
+frontend/out/
+
+# Documentation
+*.md
+!README.md
+
+# Skills
+skills/

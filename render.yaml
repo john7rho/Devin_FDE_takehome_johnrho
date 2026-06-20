@@ -1,0 +1,31 @@
+# Render Blueprint for the FastAPI backend.
+#
+# Deploy:
+#   1. Push this repo to GitHub.
+#   2. In the Render dashboard: New + > Blueprint > connect this repo.
+#   3. When prompted, set the secret env vars (DEVIN_API_KEY, GITHUB_TOKEN,
+#      GITHUB_REPO_OWNER) — they are marked sync:false so they are NOT stored in git.
+#
+# The Next.js frontend is deployed separately to Vercel and points at this
+# service's public URL via NEXT_PUBLIC_API_URL.
+services:
+  - type: web
+    name: devin-fde-backend
+    runtime: python
+    plan: free
+    buildCommand: pip install -e .
+    startCommand: uvicorn app.api.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.8"          # Render-supported; code is 3.11+ compatible
+      - key: GITHUB_REPO_NAME
+        value: superset
+      - key: SEED_ON_STARTUP
+        value: "true"            # populate demo data on (cold) start
+      - key: DEVIN_API_KEY
+        sync: false              # set in dashboard (secret)
+      - key: GITHUB_TOKEN
+        sync: false              # set in dashboard (secret)
+      - key: GITHUB_REPO_OWNER
+        sync: false              # set in dashboard

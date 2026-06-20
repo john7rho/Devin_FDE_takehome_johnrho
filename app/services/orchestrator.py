@@ -44,36 +44,35 @@ class Orchestrator:
             
             # Create Devin session
             devin_client = DevinClient()
-            instructions = self._build_instructions(issue_url, repo_url, branch_name)
-            
-            devin_session_id = await devin_client.create_session(
-                instructions=instructions,
-                repo_url=repo_url,
-                branch=branch_name,
-                max_acu_limit=settings.max_acu_limit
+            prompt = self._build_instructions(issue_url, repo_url, branch_name)
+
+            devin_session_id, devin_url = await devin_client.create_session(
+                prompt=prompt,
+                max_acu_limit=settings.max_acu_limit,
+                idempotent=True,
             )
-            
+
             # Update session status
             db.update_session(session_id, status="running", status_detail="session_created")
-            session_logger.info("Devin session created", devin_session_id=devin_session_id)
-            
-            # Wait for completion
+            session_logger.info("Devin session created", devin_session_id=devin_session_id, devin_url=devin_url)
+
+            # Wait for completion (terminal or blocked-on-human)
             result = await devin_client.wait_for_completion(devin_session_id)
-            
-            # Parse status
-            status = self._map_status(str(result.get("status", "")))
+
+            # Parse status from the v1 status_enum. ACUs are not on the v1 session
+            # response; human-message count is derived from the messages list.
+            status = self._map_status(str(result.get("status_enum") or result.get("status") or ""))
             db.update_session(
                 session_id,
                 status=status.value,
-                status_detail=result.get("status_detail"),
-                acu_used=result.get("acu_used", 0),
-                human_msgs=result.get("human_msgs", 0)
+                status_detail=str(result.get("status") or ""),
+                human_msgs=DevinClient.count_human_messages(result),
             )
-            
+
             session_logger.info("Session completed", status=status.value)
-            
-            # Get structured output
-            structured_output: Optional[DevinStructuredOutput] = await devin_client.get_session_output(devin_session_id)
+
+            # Structured output is a field on the session (we passed a schema at creation).
+            structured_output: Optional[DevinStructuredOutput] = DevinClient.parse_structured_output(result)
             
             if structured_output:
                 db.update_session(
@@ -251,13 +250,11 @@ This issue will be automatically processed by the Devin automation system.
         return body
     
     def _map_status(self, devin_status: str) -> SessionStatus:
-        """Map Devin status to our SessionStatus enum."""
+        """Map a Devin v1 status_enum value to our SessionStatus enum."""
         status_map = {
             "finished": SessionStatus.FINISHED,
-            "waiting_for_user": SessionStatus.WAITING_FOR_USER,
-            "waiting_for_approval": SessionStatus.WAITING_FOR_APPROVAL,
-            "error": SessionStatus.ERROR,
-            "out_of_credits": SessionStatus.OUT_OF_CREDITS,
-            "usage_limit_exceeded": SessionStatus.USAGE_LIMIT_EXCEEDED,
+            "blocked": SessionStatus.WAITING_FOR_USER,
+            "working": SessionStatus.RUNNING,
+            "expired": SessionStatus.ERROR,
         }
         return status_map.get(devin_status, SessionStatus.ERROR)

@@ -1,142 +1,159 @@
+"""Client for the real Devin v1 API (https://docs.devin.ai/api-reference).
+
+Notable v1 facts this client respects:
+  * Create takes `prompt` (not instructions/repo_url) and returns {session_id, url};
+    the `url` (https://app.devin.ai/sessions/<id>) is only returned at creation.
+  * Structured output comes back as the `structured_output` field on the session
+    GET — only if you pass `structured_output_schema` at creation. There is no
+    `/output` endpoint.
+  * Status lives in `status_enum` (working|blocked|finished|expired|...).
+  * Terminate is `DELETE /v1/sessions/{id}`; resume is `POST /v1/sessions/{id}/message`.
+"""
 import json
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 import httpx
 
 from app.core.config import settings
-from app.models.schemas import SessionStatus, DevinStructuredOutput
+from app.models.schemas import DevinStructuredOutput
 from app.utils.logger import get_logger
+
+# Devin v1 session `status_enum` values.
+TERMINAL_STATUSES = {"finished", "expired"}
+WAITING_STATUSES = {"blocked"}  # blocked = waiting on a human
+
+# JSON schema Devin is asked to fill in as `structured_output`.
+STRUCTURED_OUTPUT_SCHEMA: Dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "issue_url": {"type": "string"},
+        "summary": {"type": "string"},
+        "branch": {"type": "string"},
+        "pr_url": {"type": "string"},
+        "files_changed": {"type": "array", "items": {"type": "string"}},
+        "tests_run": {"type": "array", "items": {"type": "string"}},
+        "test_result": {"type": "string"},
+        "evidence": {"type": "string"},
+        "needs_human": {"type": "boolean"},
+    },
+    "required": ["issue_url", "summary", "branch", "test_result", "evidence"],
+}
 
 
 class DevinClient:
-    """Client for interacting with Devin API."""
-    
-    def __init__(self):
+    """Async client for the Devin v1 sessions API."""
+
+    def __init__(self) -> None:
         self.api_key = settings.devin_api_key
         self.base_url = settings.devin_api_url
         self.client = httpx.AsyncClient(
             base_url=self.base_url,
             headers={"Authorization": f"Bearer {self.api_key}"},
-            timeout=300.0
+            timeout=300.0,
         )
         self.logger = get_logger()
-    
+
     async def create_session(
         self,
-        instructions: str,
-        repo_url: str,
-        branch: Optional[str] = None,
-        max_acu_limit: Optional[int] = None
-    ) -> str:
-        """Create a new Devin session and return session_id."""
+        prompt: str,
+        *,
+        max_acu_limit: Optional[int] = None,
+        snapshot_id: Optional[str] = None,
+        idempotent: bool = False,
+    ) -> Tuple[str, Optional[str]]:
+        """Create a session. Returns (session_id, session_url)."""
+        payload: Dict[str, Any] = {
+            "prompt": prompt,
+            "structured_output_schema": STRUCTURED_OUTPUT_SCHEMA,
+        }
+        if max_acu_limit:
+            payload["max_acu_limit"] = max_acu_limit
+        if snapshot_id:
+            payload["snapshot_id"] = snapshot_id
+        if idempotent:
+            payload["idempotent"] = True
         try:
-            payload: Dict[str, Any] = {
-                "instructions": instructions,
-                "repo_url": repo_url,
-                "max_acu_limit": max_acu_limit or settings.max_acu_limit
-            }
-            if branch:
-                payload["branch"] = branch
-            
-            self.logger.info("Creating Devin session", repo_url=repo_url, branch=branch)
-            
             response = await self.client.post("/v1/sessions", json=payload)
             response.raise_for_status()
-            
-            data = response.json()
-            session_id = data.get("session_id")
-            if not isinstance(session_id, str):
-                raise ValueError("Devin API response did not include a session_id")
-            
-            self.logger.info("Devin session created", session_id=session_id)
-            return session_id
-            
         except httpx.HTTPError as e:
             self.logger.error("Failed to create Devin session", error=str(e))
             raise
-    
-    async def get_session_status(self, session_id: str) -> Dict[str, Any]:
-        """Get the status of a Devin session."""
-        try:
-            response = await self.client.get(f"/v1/sessions/{session_id}")
-            response.raise_for_status()
-            
-            data = response.json()
-            self.logger.debug("Session status retrieved", session_id=session_id, status=data.get("status"))
-            return data
-            
-        except httpx.HTTPError as e:
-            self.logger.error("Failed to get session status", session_id=session_id, error=str(e))
-            raise
-    
+        data = response.json()
+        session_id = data.get("session_id")
+        if not isinstance(session_id, str):
+            raise ValueError("Devin API response did not include a session_id")
+        self.logger.info("Devin session created", session_id=session_id, url=data.get("url"))
+        return session_id, data.get("url")
+
+    async def get_session(self, session_id: str) -> Dict[str, Any]:
+        """GET a session (status, status_enum, messages, structured_output, ...)."""
+        response = await self.client.get(f"/v1/sessions/{session_id}")
+        response.raise_for_status()
+        return response.json()
+
     async def wait_for_completion(
-        self,
-        session_id: str,
-        poll_interval: int = 30,
-        timeout: int = 3600
+        self, session_id: str, poll_interval: int = 30, timeout: int = 3600
     ) -> Dict[str, Any]:
-        """Wait for a session to complete, polling for status."""
+        """Poll until the session is terminal or blocked (waiting on a human)."""
         import asyncio
-        
-        self.logger.info("Waiting for session completion", session_id=session_id)
-        
+
         elapsed = 0
         while elapsed < timeout:
-            status_data = await self.get_session_status(session_id)
-            status = str(status_data.get("status", ""))
-            
-            if status in SessionStatus.terminal_values():
-                self.logger.info("Session completed", session_id=session_id, status=status)
-                return status_data
-            
-            if status in SessionStatus.waiting_values():
-                self.logger.warning("Session waiting for human", session_id=session_id, status=status)
-                return status_data
-            
+            session = await self.get_session(session_id)
+            status = str(session.get("status_enum") or session.get("status") or "")
+            if status in TERMINAL_STATUSES or status in WAITING_STATUSES:
+                self.logger.info("Session reached terminal/blocked state", session_id=session_id, status=status)
+                return session
             await asyncio.sleep(poll_interval)
             elapsed += poll_interval
-        
-        self.logger.error("Session timeout", session_id=session_id)
         raise TimeoutError(f"Session {session_id} did not complete within {timeout} seconds")
-    
-    async def get_session_output(self, session_id: str) -> Optional[DevinStructuredOutput]:
-        """Retrieve and parse structured output from a completed session."""
-        try:
-            response = await self.client.get(f"/v1/sessions/{session_id}/output")
-            response.raise_for_status()
-            
-            data = response.json()
-            output_text = data.get("output", "")
-            
-            # Try to parse JSON from output
-            try:
-                output_json = json.loads(output_text)
-                return DevinStructuredOutput(**output_json)
-            except (json.JSONDecodeError, ValueError) as e:
-                self.logger.warning(
-                    "Failed to parse structured output as JSON",
-                    session_id=session_id,
-                    error=str(e)
-                )
-                return None
-            
-        except httpx.HTTPError as e:
-            self.logger.error("Failed to get session output", session_id=session_id, error=str(e))
+
+    @staticmethod
+    def parse_structured_output(session: Dict[str, Any]) -> Optional[DevinStructuredOutput]:
+        """Parse the `structured_output` field off a session response."""
+        raw: Any = session.get("structured_output")
+        if not raw:
             return None
-    
-    async def cancel_session(self, session_id: str) -> bool:
-        """Cancel a running Devin session."""
         try:
-            response = await self.client.post(f"/v1/sessions/{session_id}/cancel")
+            if isinstance(raw, str):
+                raw = json.loads(raw)
+            return DevinStructuredOutput(**raw)
+        except (json.JSONDecodeError, TypeError, ValueError) as e:
+            logger_warn = get_logger()
+            logger_warn.warning("Failed to parse structured_output", error=str(e))
+            return None
+
+    @staticmethod
+    def count_human_messages(session: Dict[str, Any]) -> int:
+        """Count human-authored messages (for the autonomy metric)."""
+        messages = session.get("messages") or []
+        if not isinstance(messages, list):
+            return 0
+        return sum(
+            1
+            for m in messages
+            if isinstance(m, dict) and (m.get("origin") == "user" or m.get("type") == "user_message")
+        )
+
+    async def send_message(self, session_id: str, message: str) -> bool:
+        """Send a follow-up message to a session (resume / steer)."""
+        try:
+            response = await self.client.post(f"/v1/sessions/{session_id}/message", json={"message": message})
             response.raise_for_status()
-            
-            self.logger.info("Session cancelled", session_id=session_id)
             return True
-            
         except httpx.HTTPError as e:
-            self.logger.error("Failed to cancel session", session_id=session_id, error=str(e))
+            self.logger.error("Failed to send message", session_id=session_id, error=str(e))
             return False
-    
-    async def close(self):
-        """Close the HTTP client."""
+
+    async def terminate_session(self, session_id: str) -> bool:
+        """Terminate a session (DELETE /v1/sessions/{id})."""
+        try:
+            response = await self.client.delete(f"/v1/sessions/{session_id}")
+            response.raise_for_status()
+            return True
+        except httpx.HTTPError as e:
+            self.logger.error("Failed to terminate session", session_id=session_id, error=str(e))
+            return False
+
+    async def close(self) -> None:
         await self.client.aclose()

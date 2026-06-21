@@ -39,7 +39,9 @@ def test_seed_endpoint_removed(temp_db):
 def test_scan_only_does_not_dispatch_sessions(temp_db):
     # Regression: scan_only must never process pending issues (it used to fall
     # through to process_pending_issues() when no repo_path was given).
-    with patch("app.api.routes.Orchestrator.process_pending_issues",
+    # resolve_scan_repo_path is stubbed to None so the test never touches git/OSV.
+    with patch("app.api.routes.resolve_scan_repo_path", return_value=None), \
+         patch("app.api.routes.Orchestrator.process_pending_issues",
                new=AsyncMock(return_value=[])) as proc:
         r = client.post("/api/v1/runs", json={"scan_only": True})
         assert r.status_code == 200
@@ -47,7 +49,8 @@ def test_scan_only_does_not_dispatch_sessions(temp_db):
 
 
 def test_scan_and_process_dispatches(temp_db):
-    with patch("app.api.routes.Orchestrator.process_pending_issues",
+    with patch("app.api.routes.resolve_scan_repo_path", return_value=None), \
+         patch("app.api.routes.Orchestrator.process_pending_issues",
                new=AsyncMock(return_value=[])) as proc:
         r = client.post("/api/v1/runs", json={"scan_only": False})
         assert r.status_code == 200
@@ -57,7 +60,8 @@ def test_scan_and_process_dispatches(temp_db):
 def test_run_is_tracked_and_retrievable(temp_db):
     # POST /runs must record the run; GET /runs/{id} must return the real record,
     # not the old "unknown" stub.
-    with patch("app.api.routes.Orchestrator.process_pending_issues",
+    with patch("app.api.routes.resolve_scan_repo_path", return_value=None), \
+         patch("app.api.routes.Orchestrator.process_pending_issues",
                new=AsyncMock(return_value=[])):
         run_id = client.post("/api/v1/runs", json={"scan_only": True}).json()["run_id"]
     r = client.get(f"/api/v1/runs/{run_id}")

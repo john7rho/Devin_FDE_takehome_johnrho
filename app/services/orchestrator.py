@@ -163,8 +163,9 @@ class Orchestrator:
         self.logger.info("Starting dependency scan", repo_path=repo_path)
         
         scanner = DependencyScanner(repo_path)
-        findings = scanner.scan_all()
-        
+        # scan_all does blocking I/O (OSV HTTP + subprocess); keep it off the loop.
+        findings = await asyncio.to_thread(scanner.scan_all)
+
         if not findings:
             self.logger.info("No vulnerabilities found")
             return []
@@ -179,12 +180,19 @@ class Orchestrator:
             (i.get("dependency_name"), i.get("vulnerability_id"))
             for i in db.get_all_issues()
         }
-        issue_urls = []
+        # Cap NEW issues per run so a full scan of a large project can't flood the
+        # tracker / burn ACU on the downstream Devin dispatch. 0 == unlimited.
+        cap = settings.max_new_issues_per_scan
+        issue_urls: List[str] = []
+        deferred_by_cap = 0
         for finding in findings:
             key = (finding.dependency_name, finding.vulnerability_id)
             if key in existing_keys:
                 self.logger.info("Issue already exists", dependency=finding.dependency_name,
                                  vulnerability_id=finding.vulnerability_id)
+                continue
+            if cap and len(issue_urls) >= cap:
+                deferred_by_cap += 1
                 continue
 
             vuln_suffix = f" ({finding.vulnerability_id})" if finding.vulnerability_id else ""
@@ -207,6 +215,9 @@ class Orchestrator:
             issue_urls.append(issue.html_url)
             self.logger.info("Issue created", issue_url=issue.html_url)
 
+        if deferred_by_cap:
+            self.logger.info("New-issue cap reached; deferred remaining findings to a later run",
+                             cap=cap, deferred=deferred_by_cap)
         return issue_urls
     
     def _build_instructions(

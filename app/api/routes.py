@@ -1,3 +1,4 @@
+import asyncio
 from typing import List, Optional
 
 import structlog
@@ -9,7 +10,7 @@ from app.models.schemas import SessionResponse, IssueResponse, MetricsSummary
 from app.services.orchestrator import Orchestrator
 from app.services.metrics import MetricsCollector
 from app.utils.logger import get_logger
-from app.core.config import settings
+from app.services.repo_checkout import resolve_scan_repo_path
 from app.services import superset_preview
 
 router = APIRouter()
@@ -69,10 +70,6 @@ async def create_run(run: RunCreate, background_tasks: BackgroundTasks):
 
     orchestrator = Orchestrator()
 
-    # The browser can't supply a server filesystem path, so fall back to the
-    # configured scan_repo_path -- this is what makes the "Scan" buttons actually scan.
-    repo_path = run.repo_path or settings.scan_repo_path
-
     async def execute_run():
         # Tag every line in this run with run_id (covers the pre-session scan +
         # GitHub logs that have no session_id yet).
@@ -80,13 +77,18 @@ async def create_run(run: RunCreate, background_tasks: BackgroundTasks):
         issues_found = 0
         sessions_started = 0
         try:
+            # Resolve the scan target server-side (the browser can't supply a path).
+            # Defaults to a fresh checkout of the fork; done here, not in the request
+            # handler, so any clone/fetch runs in the background task rather than
+            # blocking the POST. to_thread keeps the blocking git calls off the loop.
+            repo_path = run.repo_path or await asyncio.to_thread(resolve_scan_repo_path)
             if repo_path:
-                # Scan a local checkout and create issues for findings.
+                # Scan the checkout and create issues for findings.
                 issue_urls = await orchestrator.scan_and_create_issues(repo_path)
                 issues_found = len(issue_urls)
-                logger.info("Scan completed", run_id=run_id, issues_created=issues_found)
+                logger.info("Scan completed", run_id=run_id, issues_created=issues_found, repo_path=repo_path)
             else:
-                logger.info("No scan_repo_path configured; skipping scan", run_id=run_id)
+                logger.info("No scan target available (set scan_repo_path or github_fork_url); skipping scan", run_id=run_id)
 
             # scan_only must be honored regardless of repo_path. The old code only
             # checked it inside the repo_path branch, so "Scan only" with no checkout

@@ -33,8 +33,17 @@ class Settings(BaseSettings):
     enable_pip_audit: bool = True
     enable_pnpm_audit: bool = True
     # Local checkout the dashboard "Scan" buttons audit (server-side path; the
-    # browser can't supply a filesystem path). Empty -> nothing to scan.
+    # browser can't supply a filesystem path). When empty, the scanner falls back
+    # to a local checkout of the fork (see fork_checkout_path) at the tip of its
+    # default branch -- so "Scan" always audits the fork's current version.
     scan_repo_path: Optional[str] = None
+    # Where the fork is checked out when scan_repo_path is unset. Relative to the
+    # app working dir; in Docker this is /app/superset-fork (a persisted mount).
+    fork_checkout_path: str = "superset-fork"
+    fork_default_branch: str = "master"
+    # Cap on NEW issues (and therefore Devin sessions) created per run, so a full
+    # scan of a large project can't flood the tracker or burn ACU. 0 = unlimited.
+    max_new_issues_per_scan: int = 5
     
     # Branch Naming Convention
     branch_prefix: str = "fix/dependency"

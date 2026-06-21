@@ -40,3 +40,6 @@ script.full.md
 
 # Stale/broken build artifacts
 frontend/.next.broken/
+
+# Managed checkout of the fork the scanner audits (cloned/refreshed at runtime)
+/superset-fork/

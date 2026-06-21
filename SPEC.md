@@ -35,14 +35,13 @@ Build an event-driven automation using the Devin API (docs.devin.ai).
     - Minimum: status of active and completed tasks, success/failure signals, throughput or progerss tracking
 - Interface:
     - Simple endpoint to start/monitor progress
-    - Create a codegraph to explain the architecture and flow of the application as well as where changes were made
     - Simple interface to view metrics and logs
         - Metrics: status of active and completed tasks, success/failure signals, throughput or progerss tracking
         - Logs: structured logs with every line tagged with session_id from JSON to stdout
         - Tracing: maintain structured logs with every line tagged with session_id from JSON to stdout
         - Include links to the GitHub issues and PRs created (on the FORK, not the upstream)
-        - Use frontend design skill; include visualizations and clear navigation; should be an Overview, Issues, Observability, and Codegraph page
-        - Add a button to trigger a new run; include a button to refresh the page; include option to merge PRs; include option to delete runs; add search bar to find runs by session_id or issue_id or name; add filters to filter runs by status, date, etc.; also add a codegraph visualization to show the architecture and flow of the application per-run and show a diff of changes made
+        - Include visualizations and clear navigation for Overview, Issues, Observability, and PR/status views
+        - Add a button to trigger a new run; include a button to refresh the page; include option to merge PRs; include option to delete runs; add search bar to find runs by session_id or issue_id or name; add filters to filter runs by status, date, etc.
 
 # Ontology (post-MVP)
 - Include traces of all actions taken by Devin for each run as well as whether a human accepted the changes

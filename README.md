@@ -2,6 +2,11 @@
 
 John Rho
 
+Event-driven automation that scans an [Apache Superset](https://github.com/apache/superset) fork for issues, dispatches Devin sessions to fix them, and opens pull requests — always against the fork, never upstream.
+
+- **Superset fork (where all issues & PRs are created):** https://github.com/john7rho/superset
+- **Live dashboard:** https://frontend-five-lyart-14.vercel.app
+
 ## Setup
 
 - Python 3.14+
@@ -44,7 +49,7 @@ Required environment variables:
 
 5. **Run the backend**
 ```bash
-python main.py
+uvicorn app.api.main:app --host 0.0.0.0 --port 8000
 ```
 
 6. **Run the frontend (in a separate terminal)**

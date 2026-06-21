@@ -7,5 +7,3 @@
     - UV for Python dependency management
     - Docker for containerization
     - GitHub Actions for CI/CD
-- Agent Skills:
-    - frontend-design: when building any UI, read and follow `skills/frontend-design/SKILL.md` — make distinctive, intentional design choices (palette, typography, layout), not templated defaults

@@ -35,3 +35,8 @@ logs/
 
 # Local scripts (not for GitHub)
 scripts/
+script.md
+script.full.md
+
+# Stale/broken build artifacts
+frontend/.next.broken/

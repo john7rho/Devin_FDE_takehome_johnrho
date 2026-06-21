@@ -2,11 +2,11 @@ FROM python:3.14-slim
 
 WORKDIR /app
 
-# Install system dependencies
+# Install system dependencies.
+# Note: pip-audit is a PyPI package (installed below via pip), NOT an apt package.
 RUN apt-get update && apt-get install -y \
     curl \
     git \
-    pip-audit \
     nodejs \
     npm \
     && rm -rf /var/lib/apt/lists/*
@@ -14,7 +14,7 @@ RUN apt-get update && apt-get install -y \
 # Install pnpm globally
 RUN npm install -g pnpm
 
-# Copy pyproject.toml and install dependencies
+# Copy pyproject.toml and install dependencies (includes pip-audit, used by the scanner)
 COPY pyproject.toml .
 RUN pip install --no-cache-dir -e .
 

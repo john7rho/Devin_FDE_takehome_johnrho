@@ -5,7 +5,7 @@ John Rho
 Event-driven automation that scans an [Apache Superset](https://github.com/apache/superset) fork for issues, dispatches Devin sessions to fix them, and opens pull requests — always against the fork, never upstream.
 
 - **Superset fork (where all issues & PRs are created):** https://github.com/john7rho/superset
-- **Live dashboard:** https://frontend-five-lyart-14.vercel.app
+- **Dashboard UI (Vercel preview):** https://frontend-five-lyart-14.vercel.app — the deployed frontend. Its build calls the API at `http://localhost:8000`, so run the backend locally (see [Docker Deployment](#docker-deployment)) for the dashboard to show live data.
 
 ## Setup
 
@@ -88,7 +88,7 @@ docker-compose down
 
 ### Web Dashboard
 
-Access the live dashboard at **https://frontend-five-lyart-14.vercel.app** — or run it locally at `http://localhost:3000`.
+The dashboard is deployed on Vercel as a UI preview: **https://frontend-five-lyart-14.vercel.app**. That build points at `http://localhost:8000/api/v1`, so it only renders live data while the backend is running on your machine — start the stack with Docker (see [Docker Deployment](#docker-deployment)) and the deployed UI (or the local copy at `http://localhost:3000`) will populate.
 
 ### API Endpoints
 
